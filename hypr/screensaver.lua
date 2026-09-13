@@ -6,7 +6,7 @@ apply_window_rule({
   match = { class = "glyphsaver" },
   float = true,
   fullscreen = true,
-  noborder = true,
-  noshadow = true,
+  border_size = 0,
+  no_shadow = true,
   no_anim = true,
 })
