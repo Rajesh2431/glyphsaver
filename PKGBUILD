@@ -10,7 +10,7 @@
 #   4. Submit with `makepkg --printsrcinfo > .SRCINFO` + `git push aur`.
 pkgname=glyphsaver
 pkgver=1.0.0
-pkgrel=7
+pkgrel=8
 pkgdesc="Fullscreen ASCII screensaver with TTE/ttfx text effects (Hyprland, Omarchy-inspired)"
 arch=('any')
 url="https://github.com/Rajesh2431/glyphsaver"
@@ -28,7 +28,7 @@ optdepends=(
   'kitty: supported fullscreen terminal'
 )
 source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('3e96dc9cd8dfcc5b34c278f2da3d218d4e2a44b2c7b5dfc28a155865c9a90d42')
+sha256sums=('7730613d2b4f4b42e7f7815915755bb936f24f055b181d14d10442c6a14e7afb')
 
 package() {
   cd "$srcdir"

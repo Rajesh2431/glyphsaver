@@ -242,7 +242,8 @@ else
   echo "  2) image file (PNG/SVG -> ASCII via chafa)"
   echo "  3) existing .txt art file"
   echo "  4) preset art ($(ss_list_arts | tr '\n' ' '))"
-  echo "  5) keep current ($(ss_resolve_art))"
+  echo "  5) paste your own ASCII art (end with Ctrl-D)"
+  echo "  6) keep current ($(ss_resolve_art))"
   case "$(ask "Art choice" "1")" in
   2)
     ART_MODE=image
@@ -254,9 +255,12 @@ else
     ;;
   4)
     ART_MODE=preset
-    ART_VAL="$(ask "Preset name" "torii")"
+    ART_VAL="$(ask "Preset name" "batman")"
     ;;
   5)
+    ART_MODE=paste
+    ;;
+  6)
     ART_MODE=keep
     ;;
   *)
@@ -344,6 +348,18 @@ preset)
   else
     echo "Unknown preset — keeping current art. (see: glyphsaver arts)"
   fi
+  ;;
+paste)
+  echo "Paste your ASCII art below, then press Ctrl-D on an empty line:"
+  _pt=$(mktemp)
+  cat >"$_pt"
+  if [[ -s "$_pt" ]] && grep -q '[^[:space:]]' "$_pt"; then
+    ss_write_art "$_pt"
+    echo "Art updated from paste."
+  else
+    echo "Empty input — keeping current art."
+  fi
+  rm -f "$_pt"
   ;;
 keep)
   echo "Keeping: $(ss_resolve_art)"

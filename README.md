@@ -20,8 +20,11 @@ via the Rust port [`omacom-io/ttfx`](https://github.com/omacom-io/ttfx).
   chunky, epic, bloody, ghost, graffiti, modular), then classic FIGlet faces,
   then plain; the chosen style is saved as default and reused for later texts
 - **19 text styles** — `gly styles` lists them (`omarchy` default); `gly style NAME` switches
-- **Preset art gallery** — `gly arts` lists bundled art incl. Japanese AA
-  (`torii`, `fuji`, `wave`, `neko`); `gly art torii` sets one instantly
+- **Preset art gallery** — `gly arts` lists bundled art: heroes (`batman`,
+  `superman`, `spider`), `car`, funny (`lenny`, `tableflip`, `shrug`),
+  Japanese AA (`torii`, `fuji`, `wave`, `neko`); `gly art batman` sets one
+- **Paste your own** — `gly paste` (or `wl-paste | gly paste`) saves piped or
+  typed ASCII art, also offered during setup
 - **`glyphsaver ascii`** — render words to stdout in the wordmark style
 - **Image → ASCII** — PNG/SVG converted via `chafa`; custom `.txt` art supported
 - **Per-monitor fullscreen** — one terminal per Hyprland monitor, race-free
@@ -136,8 +139,9 @@ publishing steps.
 | `glyphsaver style mini` / `auto` | default text style (`omarchy\|standard\|small\|mini\|plain\|auto`) |
 | `glyphsaver set-image logo.png` | PNG/SVG → ASCII art (needs `chafa`) |
 | `glyphsaver set-art file.txt` | use an existing text-art file |
-| `glyphsaver arts` | list bundled presets (torii, fuji, wave, neko) |
-| `glyphsaver art torii` | use a bundled preset instantly |
+| `glyphsaver arts` | list bundled presets (heroes, car, funny, Japanese) |
+| `glyphsaver art batman` | use a bundled preset instantly |
+| `glyphsaver paste` | paste your own ASCII art (`wl-paste \| gly paste`, end typing with Ctrl-D) |
 | `glyphsaver edit-art` | open current art in `$EDITOR` |
 | `glyphsaver reset-art` | restore the bundled logo |
 | `glyphsaver help` | full command help in the terminal |

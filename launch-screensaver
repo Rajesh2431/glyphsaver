@@ -25,8 +25,9 @@
 #   style NAME | auto       default text style (see: glyphsaver styles)
 #   set-image IMG           convert PNG/SVG to ASCII art (needs chafa)
 #   set-art FILE            use an existing .txt art file
-#   arts                    list bundled presets (incl. Japanese AA)
-#   art NAME                use a bundled preset, e.g. glyphsaver art torii
+#   arts                    list bundled presets (heroes, cars, funny, Japanese)
+#   art NAME                use a bundled preset, e.g. glyphsaver art batman
+#   paste                   paste your own ASCII art (stdin, end with Ctrl-D)
 #   edit-art                open current art in $EDITOR
 #   reset-art               restore bundled logo
 #   help                    this help
@@ -554,6 +555,25 @@ art)
   }
   write_art "$_af"
   echo "Art: $1"
+  ;;
+paste)
+  # Paste your own ASCII art: pipe it in, or type/paste then Ctrl-D.
+  #   wl-paste | glyphsaver paste     (Wayland clipboard)
+  #   xclip -o | glyphsaver paste     (X11 clipboard)
+  #   glyphsaver paste < art.txt
+  if [[ -t 0 ]]; then
+    echo "Paste your ASCII art below, then press Ctrl-D on an empty line:"
+  fi
+  _pt=$(mktemp)
+  cat >"$_pt"
+  if [[ ! -s "$_pt" ]] || ! grep -q '[^[:space:]]' "$_pt"; then
+    echo "Empty input — keeping current art." >&2
+    rm -f "$_pt"
+    exit 1
+  fi
+  write_art "$_pt"
+  rm -f "$_pt"
+  echo "Art updated from paste ($(wc -l < "$(resolve_art)") lines)."
   ;;
 edit-art)
   "${EDITOR:-vi}" "$(resolve_art)"
