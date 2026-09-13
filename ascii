@@ -38,11 +38,26 @@ while (($# > 0)); do
     exit 0
     ;;
   --font)
-    FONT_NAME="${2:-}"
+    if [[ "${1:-}" == *"="* ]]; then
+      FONT_NAME="${1#*=}"
+      FONT_NAME="${FONT_NAME%.flf}"
+      FONT_FILE="$FONT_DIR/$FONT_NAME.flf"
+    else
+      if [[ -z "${2:-}" || "${2:-}" == -* ]]; then
+        echo "Missing value for --font (see: glyphsaver styles)" >&2
+        exit 1
+      fi
+      FONT_NAME="$2"
+      FONT_NAME="${FONT_NAME%.flf}"
+      FONT_FILE="$FONT_DIR/$FONT_NAME.flf"
+      shift
+    fi
+    ;; # outer shift below consumes the flag itself (or the = form)
+  --font=*)
+    FONT_NAME="${1#--font=}"
     FONT_NAME="${FONT_NAME%.flf}"
     FONT_FILE="$FONT_DIR/$FONT_NAME.flf"
-    shift
-    ;; # outer shift below consumes the flag itself
+    ;;
   --)
     shift
     words+=("$@")

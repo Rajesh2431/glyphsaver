@@ -14,6 +14,18 @@ IDLE_ICON="$HOME/.config/swaync/images/ja.png"
 # shellcheck disable=SC1090
 [[ -f "$IDLE_CONF" ]] && source "$IDLE_CONF"
 
+# systemd user units often lack Hyprland env vars. Discover them so
+# hyprctl / socket paths work when started from the service.
+: "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"
+export XDG_RUNTIME_DIR
+if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+  _sock=$(ls -td "$XDG_RUNTIME_DIR"/hypr/*/ 2>/dev/null | head -1)
+  if [[ -n "${_sock:-}" ]]; then
+    export HYPRLAND_INSTANCE_SIGNATURE="$(basename "$_sock")"
+  fi
+fi
+unset _sock
+
 LAUNCHER="$(command -v glyphsaver 2>/dev/null || echo "$HOME/.local/bin/glyphsaver")"
 
 command -v swayidle &>/dev/null || {

@@ -44,9 +44,13 @@ ss_write_art() {
     ss_scale_art "$src" "$tmp" >/dev/null
     staged="$tmp"
   fi
-  mkdir -p "$(dirname "$ss_local_art")" "$(dirname "$ss_legacy_art")"
+  mkdir -p "$(dirname "$ss_local_art")"
   cp "$staged" "$ss_local_art"
-  cp "$staged" "$ss_legacy_art" 2>/dev/null || true
+  # Mirror to the legacy Omarchy path only if the user already uses it
+  # (don't create ~/.config/omarchy for non-Omarchy machines).
+  if [[ -f "$ss_legacy_art" || -d "$(dirname "$ss_legacy_art")" ]]; then
+    cp "$staged" "$ss_legacy_art" 2>/dev/null || true
+  fi
   [[ -n "$tmp" ]] && rm -f "$tmp"
 }
 
@@ -98,10 +102,23 @@ ss_write_hypridle() {
 }
 
 # Read a KEY from an env-style config file (empty if unset).
+# Preserves inner spaces (e.g. 'matrix rain'); strips only surrounding
+# whitespace and one layer of matching surrounding quotes.
 ss_config_get() {
-  local key="$1" file="$2"
+  local key="$1" file="$2" val
   [[ -f "$file" ]] || return 0
-  grep -E "^[[:space:]]*$key=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"' "
+  val=$(grep -E "^[[:space:]]*$key=" "$file" 2>/dev/null | tail -1 | cut -d= -f2-)
+  [[ -z "${val:-}" ]] && return 0
+  val="${val#"${val%%[![:space:]]*}"}"
+  val="${val%"${val##*[![:space:]]}"}"
+  if ((${#val} >= 2)); then
+    if [[ "${val:0:1}" == '"' && "${val: -1}" == '"' ]]; then
+      val="${val:1:-1}"
+    elif [[ "${val:0:1}" == "'" && "${val: -1}" == "'" ]]; then
+      val="${val:1:-1}"
+    fi
+  fi
+  printf '%s' "$val"
 }
 
 # Usable terminal rows fullscreen: smallest monitor wins. Cell ≈ 23px tall.
@@ -280,7 +297,8 @@ ss_render_style() {
   # the real glyph bounds.
   _trim=$(mktemp)
   awk 'NF { f = 1 } f' "$outfile" | tac | awk 'NF { f = 1 } f' | tac >"$_trim" && mv "$_trim" "$outfile"
-  wid=$(awk '{ print length }' "$outfile" | sort -n | tail -1)
+  # Display width (CJK-aware) so fit checks match ss_scale_art/ss_dwidth.
+  wid=$(ss_dwidth "$outfile")
   [[ -n "$wid" ]] && ((wid <= max_cols)) || return 1
   echo "$style (width ${wid}/${max_cols} cols)"
   return 0

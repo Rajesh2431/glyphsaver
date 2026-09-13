@@ -107,6 +107,12 @@ if [[ ! -f "$ART" ]]; then
   exit 1
 fi
 
+# Validate config-sourced values (config file is sourced, so don't trust it).
+[[ "$FPS" =~ ^[0-9]+$ ]] && ((FPS >= 1 && FPS <= 1000)) || FPS=120
+case "$ENGINE" in auto | ttfx | tte) ;; *) ENGINE="auto" ;; esac
+case "$MODE" in random | single) ;; *) MODE="random" ;; esac
+[[ "$EFFECT" =~ ^[a-z]+$ ]] || EFFECT="matrix"
+
 if [[ "$ENGINE" == "auto" ]]; then
   if command -v ttfx &>/dev/null; then
     ENGINE="ttfx"
@@ -149,9 +155,15 @@ is_screensaver_focused() {
 exit_screensaver() {
   command -v hyprctl &>/dev/null && hyprctl keyword cursor:invisible false &>/dev/null || true
   printf '\033[?25h'
-  pkill -x "$ENGINE" 2>/dev/null || true
-  pkill -f 'class=glyphsaver' 2>/dev/null || true
-  pkill -f 'app-id=glyphsaver' 2>/dev/null || true
+  # Only kill engines spawned by this screensaver (they carry our
+  # --reuse-canvas marker); never pkill all ttfx/tte on the system.
+  pkill -f "$ENGINE.*--reuse-canvas" 2>/dev/null || true
+  # Ask the compositor to close saver windows; fall back to killing only
+  # our own loop processes.
+  if command -v hyprctl &>/dev/null; then
+    hyprctl dispatch closewindow class:glyphsaver >/dev/null 2>&1 || true
+  fi
+  pkill -f '[g]lyphsaver-loop' 2>/dev/null || true
   exit 0
 }
 
@@ -194,21 +206,24 @@ GRACE=3
 LASTPOS=""
 
 # Returns 0 when the user pressed a real key (exit the saver), 1 on timeout
-# or when the input starts an escape sequence. Every effect cycle spawns a
-# fresh engine process that queries the terminal on startup, and those reply
-# bytes arrive on our stdin too — any ESC-led bytes are swallowed, since no
-# key we care about needs them (printables, space, enter, ctrl-keys all exit).
-# Trade-off: bare ESC / arrows / F-keys do not exit; everything else does.
+# or on terminal-reply bytes. Every effect cycle spawns a fresh engine
+# process that queries the terminal on startup, and those reply bytes
+# (ESC-led) arrive on our stdin too. A lone ESC with nothing following
+# within 0.12s is treated as a real keypress; longer ESC-led sequences
+# (terminal replies, arrows, F-keys) are swallowed.
 user_pressed_key() {
   local b
   IFS= read -r -n1 -t 1 -u 0 b || return 1
   if [[ "$b" == $'\e' ]]; then
     # Drain the rest of the escape sequence (terminal reply or special
     # key) so leftover bytes can't false-trigger the next check.
-    while IFS= read -r -n1 -t 0.05 -u 0 b; do
-      :
-    done
-    return 1
+    if IFS= read -r -n1 -t 0.12 -u 0 b; then
+      while IFS= read -r -n1 -t 0.05 -u 0 b; do
+        :
+      done
+      return 1
+    fi
+    return 0
   fi
   return 0
 }
@@ -228,8 +243,21 @@ mouse_moved() {
 
 while true; do
   "$ENGINE" "${BASE_ARGS[@]}" "${MODE_ARGS[@]}" &
+  ENGINE_PID=$!
   CYCLE_START=$SECONDS
-  while pgrep -t "${tty_dev#/dev/}" -x "$ENGINE" >/dev/null 2>&1; do
+  # Liveness check: prefer tracking our own child PID (works without a tty);
+  # fall back to per-tty pgrep only when we have a usable tty name.
+  engine_alive() {
+    if kill -0 "$ENGINE_PID" 2>/dev/null; then
+      return 0
+    fi
+    if [[ -n "${tty_dev:-}" && "$tty_dev" != "not a tty" ]]; then
+      pgrep -t "${tty_dev#/dev/}" -x "$ENGINE" >/dev/null 2>&1
+    else
+      return 1
+    fi
+  }
+  while engine_alive; do
     if ((SECONDS - CYCLE_START < 2)); then
       # Fresh engine queries the terminal on startup; don't read stdin
       # while its reply bytes are in flight.

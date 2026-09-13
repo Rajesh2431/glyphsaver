@@ -386,6 +386,12 @@ launch() {
   printf -v inner_cmd '%q ' "$INNER" "${PASSTHROUGH[@]}"
   inner_cmd="${inner_cmd% }"
 
+  # %q-quote a path for embedding in the bash -lc string (no raw quotes).
+  local q_asset_alacritty q_asset_ghostty q_asset_foot
+  printf -v q_asset_alacritty '%q' "$ASSET_DIR/terminals/alacritty-screensaver.toml"
+  printf -v q_asset_ghostty '%q' "$ASSET_DIR/terminals/ghostty-screensaver"
+  printf -v q_asset_foot '%q' "$ASSET_DIR/terminals/foot-screensaver.ini"
+
   local focused
   focused=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty' 2>/dev/null || true)
 
@@ -397,8 +403,12 @@ launch() {
 
   hypr_exec() {
     local command="$1"
-    hyprctl dispatch "hl.dsp.exec_cmd([[$command]])" >/dev/null 2>&1 ||
-      hyprctl dispatch exec -- bash -lc "$command" >/dev/null 2>&1 || true
+    # [[...]] breaks if the command contains ']]'; guard by falling back
+    # to the plain exec form in that (rare) case.
+    if [[ "$command" != *']]'* ]]; then
+      hyprctl dispatch "hl.dsp.exec_cmd([[$command]])" >/dev/null 2>&1 && return 0
+    fi
+    hyprctl dispatch exec -- bash -lc "$command" >/dev/null 2>&1 || true
   }
 
   focus_screensaver() {
@@ -406,8 +416,14 @@ launch() {
       hyprctl dispatch focuswindow class:glyphsaver >/dev/null 2>&1 || true
   }
 
-  # Open the event stream BEFORE spawning (Omarchy race-fix).
-  local socket="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
+  # Discover the event socket even when systemd didn't pass Hyprland env.
+  : "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"
+  if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    _sock_dir=$(ls -td "$XDG_RUNTIME_DIR"/hypr/*/ 2>/dev/null | head -1)
+    [[ -n "${_sock_dir:-}" ]] && HYPRLAND_INSTANCE_SIGNATURE="$(basename "$_sock_dir")"
+    unset _sock_dir
+  fi
+  local socket="${XDG_RUNTIME_DIR}/hypr/${HYPRLAND_INSTANCE_SIGNATURE:-}/.socket2.sock"
   local events=""
   if [[ -S "$socket" ]]; then
     exec {events}< <(socat -U - "UNIX-CONNECT:$socket")
@@ -424,30 +440,36 @@ launch() {
     done
   }
 
-  for m in $(hyprctl monitors -j | jq -r '.[] | .name'); do
+  while IFS= read -r m; do
+    [[ -z "$m" ]] && continue
     hypr_focus_monitor "$m"
     case "$terminal" in
     alacritty)
-      hypr_exec "alacritty --class=glyphsaver --config-file '$ASSET_DIR/terminals/alacritty-screensaver.toml' -e $inner_cmd"
+      hypr_exec "alacritty --class=glyphsaver --config-file $q_asset_alacritty -e $inner_cmd"
       ;;
     ghostty)
-      hypr_exec "ghostty --class=glyphsaver --config-file='$ASSET_DIR/terminals/ghostty-screensaver' --font-size=18 -e $inner_cmd"
+      hypr_exec "ghostty --class=glyphsaver --config-file=$q_asset_ghostty --font-size=18 -e $inner_cmd"
       ;;
     foot)
-      hypr_exec "foot --app-id=glyphsaver --config='$ASSET_DIR/terminals/foot-screensaver.ini' -e $inner_cmd"
+      hypr_exec "foot --app-id=glyphsaver --config=$q_asset_foot -e $inner_cmd"
       ;;
     kitty)
       hypr_exec "kitty --class=glyphsaver --override font_size=18 --override window_padding_width=0 -e $inner_cmd"
       ;;
     generic)
-      hypr_exec "$terminal_fallback -e $inner_cmd"
+      # Most terminals accept -e; gnome-terminal needs '--'. Try -- first.
+      if [[ "$terminal_fallback" == *gnome-terminal* ]]; then
+        hypr_exec "$terminal_fallback -- $inner_cmd"
+      else
+        hypr_exec "$terminal_fallback -e $inner_cmd"
+      fi
       ;;
     esac
     wait_for_screensaver_window
     # New windows don't always take focus on their own (setup-dependent);
     # without focus the loop below would exit immediately.
     focus_screensaver
-  done
+  done < <(hyprctl monitors -j 2>/dev/null | jq -r '.[] | .name // empty' 2>/dev/null)
 
   # A saver window must hold focus or the loop inside exits. Focus lands
   # asynchronously (and silently fails if the window isn't mapped yet),
@@ -495,10 +517,14 @@ launch | force | "")
   launch
   ;;
 stop)
-  pkill -x ttfx 2>/dev/null || true
-  pkill -x tte 2>/dev/null || true
-  pkill -f 'class=glyphsaver' 2>/dev/null || true
-  pkill -f 'app-id=glyphsaver' 2>/dev/null || true
+  # Stop only our own saver: close compositor windows, kill loop + its
+  # engines (marked with --reuse-canvas). Never pkill all ttfx/tte.
+  if command -v hyprctl &>/dev/null; then
+    hyprctl dispatch closewindow class:glyphsaver >/dev/null 2>&1 || true
+  fi
+  pkill -f 'ttfx.*--reuse-canvas' 2>/dev/null || true
+  pkill -f 'tte.*--reuse-canvas' 2>/dev/null || true
+  pkill -f '[g]lyphsaver-loop' 2>/dev/null || true
   command -v hyprctl &>/dev/null && hyprctl keyword cursor:invisible false &>/dev/null || true
   echo "Screensaver stopped."
   ;;
@@ -541,7 +567,9 @@ set-image)
     exit 1
   }
   tmp=$(mktemp)
-  chafa --format symbols --symbols braille --size 100x30 "$img" >"$tmp"
+  _cw=$(ss_max_cols); _ch=$(( $(ss_max_rows) - 4 ))
+  (( _ch < 10 )) && _ch=10
+  chafa --format symbols --symbols braille --size "${_cw}x${_ch}" "$img" >"$tmp"
   write_art "$tmp"
   rm -f "$tmp"
   ;;

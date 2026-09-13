@@ -15,7 +15,7 @@ pkgdesc="Fullscreen ASCII screensaver with TTE/ttfx text effects (Hyprland, Omar
 arch=('any')
 url="https://github.com/Rajesh2431/glyphsaver"
 license=('MIT')
-depends=('bash' 'jq' 'socat')
+depends=('bash' 'jq' 'socat' 'python3')
 optdepends=(
   'ttfx: fast Rust effects engine'
   'python-terminaltexteffects: original Python effects engine (tte)'
@@ -40,6 +40,7 @@ package() {
   install -Dm755 ascii "$pkgdir/usr/bin/glyphsaver-ascii"
   install -Dm755 idle/glyphsaver-idle "$pkgdir/usr/bin/glyphsaver-idle"
   install -Dm644 idle/glyphsaver-idle.service "$pkgdir/usr/lib/systemd/user/glyphsaver-idle.service"
+  sed -i 's|^ExecStart=.*|ExecStart=/usr/bin/glyphsaver-idle|' "$pkgdir/usr/lib/systemd/user/glyphsaver-idle.service"
 
   local share="$pkgdir/usr/share/glyphsaver"
   install -Dm644 idle/idle.conf.example "$share/idle/idle.conf.example"

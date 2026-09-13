@@ -56,7 +56,7 @@ while [[ $# -gt 0 ]]; do
   --art) OPT_ART="$2"; shift 2 ;;
   --engine) OPT_ENGINE="$2"; shift 2 ;;
   -h | --help)
-    echo "Usage: setup [--yes] [--idle SEC] [--text ...] [--style NAME] [--image IMG] [--art FILE] [--engine auto|ttfx|tte]"
+    echo "Usage: setup [--yes] [--idle SEC|skip] [--text ...] [--style NAME] [--image IMG] [--art FILE] [--engine auto|ttfx|tte]"
     exit 0
     ;;
   *)
@@ -82,7 +82,14 @@ ask() {
 
 backup() {
   local f="$1"
-  [[ -f "$f" && ! -f "$f.bak" ]] && cp "$f" "$f.bak" && echo "(backup: $f.bak)"
+  [[ -f "$f" ]] || return 0
+  if [[ ! -f "$f.bak" ]]; then
+    cp "$f" "$f.bak" && echo "(backup: $f.bak)"
+  elif ! cmp -s "$f" "$f.bak"; then
+    local ts
+    ts=$(date +%Y%m%d-%H%M%S)
+    cp "$f" "$f.bak.$ts" && echo "(backup: $f.bak.$ts)"
+  fi
 }
 
 strip_managed_block() {
@@ -172,7 +179,10 @@ echo "  4) 480s — just before the 10-min lock"
 echo "  5) custom seconds"
 echo "  6) skip — don't touch idle handling"
 IDLE_CHOICE="$OPT_IDLE"
-if [[ -z "$IDLE_CHOICE" ]]; then
+if [[ -z "$IDLE_CHOICE" && ((YES)) ]]; then
+  # Non-interactive default; use --idle skip to opt out explicitly.
+  IDLE_CHOICE="2"
+elif [[ -z "$IDLE_CHOICE" ]]; then
   IDLE_CHOICE="$(ask "Idle choice" "2")"
 fi
 IDLE_SECS=""
@@ -184,7 +194,7 @@ case "$IDLE_CHOICE" in
 5)
   IDLE_SECS="$(ask "Custom seconds" "150")"
   ;;
-6 | skip | "")
+6 | skip | "" | off | none)
   echo "Skipping idle changes."
   ;;
 *)
@@ -207,7 +217,15 @@ if [[ -n "$IDLE_SECS" ]]; then
   ss_config_set IDLE_SCREENSAVER "$IDLE_SECS" "$IDLE_CONF"
   mkdir -p "$UNIT_DIR"
   cp "$ASSET_DIR/idle/glyphsaver-idle.service" "$UNIT_DIR/glyphsaver-idle.service"
+  # Point the unit at the real idle binary (local symlink vs /usr/bin install).
+  _idle_bin="$(command -v glyphsaver-idle 2>/dev/null || echo "$HOME/.local/bin/glyphsaver-idle")"
+  if [[ -n "${_idle_bin:-}" ]]; then
+    sed -i "s|^ExecStart=.*|ExecStart=$_idle_bin|" "$UNIT_DIR/glyphsaver-idle.service"
+  fi
+  unset _idle_bin
   systemctl --user daemon-reload 2>/dev/null || true
+  # Pass Hyprland env into the user manager so the service sees it.
+  systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_RUNTIME_DIR 2>/dev/null || true
   if systemctl --user enable --now glyphsaver-idle.service 2>/dev/null; then
     echo "Idle service running: screensaver at ${IDLE_SECS}s, warn 540s, lock 600s, screen-off 720s."
   else
@@ -319,7 +337,9 @@ text)
 image)
   if [[ -f "${ART_VAL:-}" ]] && command -v chafa &>/dev/null; then
     tmp=$(mktemp)
-    chafa --format symbols --symbols braille --size 100x30 "$ART_VAL" >"$tmp"
+    _cw=$(ss_max_cols); _ch=$(( $(ss_max_rows) - 4 ))
+    (( _ch < 10 )) && _ch=10
+    chafa --format symbols --symbols braille --size "${_cw}x${_ch}" "$ART_VAL" >"$tmp"
     ss_write_art "$tmp"
     rm -f "$tmp"
     echo "Art converted from $ART_VAL."

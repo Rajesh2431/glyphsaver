@@ -56,17 +56,21 @@ strip_managed_block() {
 }
 
 echo "=== stop screensaver ==="
-pkill -x ttfx 2>/dev/null || true
-pkill -x tte 2>/dev/null || true
-pkill -f 'class=glyphsaver' 2>/dev/null || true
-pkill -f 'app-id=glyphsaver' 2>/dev/null || true
+if command -v hyprctl &>/dev/null; then
+  hyprctl dispatch closewindow class:glyphsaver >/dev/null 2>&1 || true
+fi
+pkill -f 'ttfx.*--reuse-canvas' 2>/dev/null || true
+pkill -f 'tte.*--reuse-canvas' 2>/dev/null || true
+pkill -f '[g]lyphsaver-loop' 2>/dev/null || true
 command -v hyprctl &>/dev/null && hyprctl keyword cursor:invisible false &>/dev/null || true
 echo "stopped."
 
 echo "=== stop idle service ==="
 systemctl --user disable --now glyphsaver-idle.service 2>/dev/null || true
-pkill -x swayidle 2>/dev/null || true
+# Only kill swayidle instances owned by glyphsaver, not the user's own.
+pkill -f 'swayidle.*glyphsaver' 2>/dev/null || true
 rm -f "$HOME/.config/systemd/user/glyphsaver-idle.service"
+systemctl --user daemon-reload 2>/dev/null || true
 echo "idle service removed (re-enable anytime: glyphsaver-setup)."
 
 echo "=== remove launchers ==="
@@ -99,10 +103,10 @@ if strip_managed_block "$HOME/.config/hypr/hyprland.lua"; then
 else
   echo "hyprland.lua: no managed block."
 fi
-if [[ -f "$HOME/.config/hypr/hyprland.conf" ]] && grep -q "screensaver.*\.conf" "$HOME/.config/hypr/hyprland.conf"; then
-  grep -v "screensaver.*\.conf" "$HOME/.config/hypr/hyprland.conf" >"$HOME/.config/hypr/hyprland.conf.tmp" &&
+if [[ -f "$HOME/.config/hypr/hyprland.conf" ]] && grep -q "glyphsaver/hypr/screensaver.*\.conf" "$HOME/.config/hypr/hyprland.conf"; then
+  grep -v "glyphsaver/hypr/screensaver.*\.conf" "$HOME/.config/hypr/hyprland.conf" >"$HOME/.config/hypr/hyprland.conf.tmp" &&
     mv "$HOME/.config/hypr/hyprland.conf.tmp" "$HOME/.config/hypr/hyprland.conf" &&
-    echo "hyprland.conf: source line removed."
+    echo "hyprland.conf: source line removed (run: hyprctl reload)."
 fi
 mod="$HOME/.config/hypr/glyphsaver.lua"
 if [[ -f "$mod" ]] && grep -q "managed by glyphsaver-setup" "$mod"; then
@@ -116,10 +120,10 @@ else
   rm_keep="$(ask "Remove settings, art, and toggle state (~/.config/glyphsaver, branding art, state)" "N")"
 fi
 if [[ "$rm_keep" =~ ^[Yy] ]]; then
-  rm -f "$HOME/.config/glyphsaver/config" && echo "removed config."
+  rm -f "$HOME/.config/glyphsaver/config" "$HOME/.config/glyphsaver/art.txt" "$HOME/.config/glyphsaver/idle.conf" 2>/dev/null && echo "removed config/art/idle."
+  rm -f "$HOME/.config/omarchy/branding/screensaver.txt" 2>/dev/null || true
   rmdir "$HOME/.config/glyphsaver" 2>/dev/null || true
-  rm -f "$HOME/.config/glyphsaver/art.txt" "$HOME/.config/omarchy/branding/screensaver.txt" 2>/dev/null
-  rm -f "$HOME/.local/state/glyphsaver/off" 2>/dev/null
+  rm -f "$HOME/.local/state/glyphsaver/off" 2>/dev/null || true
   rmdir "$HOME/.local/state/glyphsaver" 2>/dev/null || true
   echo "settings/art/state removed."
 else
@@ -128,3 +132,4 @@ fi
 
 echo ""
 echo "Uninstall complete."
+echo "Run: hyprctl reload (applies window-rule removal). Backups (*.bak) were left in place."
