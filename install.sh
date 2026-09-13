@@ -11,12 +11,14 @@ for old in omarchy-style-screensaver omarchy-style-launch-screensaver omarchy-st
   rm -f "$BIN/$old"
 done
 
-chmod +x "$HERE/screensaver" "$HERE/launch-screensaver" "$HERE/setup" "$HERE/uninstall.sh"
+chmod +x "$HERE/screensaver" "$HERE/launch-screensaver" "$HERE/setup" "$HERE/uninstall.sh" "$HERE/ascii" "$HERE/idle/glyphsaver-idle"
 ln -sf "$HERE/launch-screensaver" "$BIN/glyphsaver"
 ln -sf "$HERE/launch-screensaver" "$BIN/gly"
 ln -sf "$HERE/screensaver" "$BIN/glyphsaver-loop"
+ln -sf "$HERE/idle/glyphsaver-idle" "$BIN/glyphsaver-idle"
 ln -sf "$HERE/setup" "$BIN/glyphsaver-setup"
 ln -sf "$HERE/uninstall.sh" "$BIN/glyphsaver-uninstall"
-echo "linked: glyphsaver, gly, glyphsaver-loop, glyphsaver-setup, glyphsaver-uninstall"
+ln -sf "$HERE/ascii" "$BIN/glyphsaver-ascii"
+echo "linked: glyphsaver, gly, glyphsaver-loop, glyphsaver-idle, glyphsaver-setup, glyphsaver-uninstall, glyphsaver-ascii"
 
 exec "$HERE/setup" "$@"

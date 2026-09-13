@@ -10,7 +10,7 @@
 #   4. Submit with `makepkg --printsrcinfo > .SRCINFO` + `git push aur`.
 pkgname=glyphsaver
 pkgver=1.0.0
-pkgrel=10
+pkgrel=11
 pkgdesc="Fullscreen ASCII screensaver with TTE/ttfx text effects (Hyprland, Omarchy-inspired)"
 arch=('any')
 url="https://github.com/Rajesh2431/glyphsaver"
@@ -20,7 +20,7 @@ optdepends=(
   'ttfx: fast Rust effects engine'
   'python-terminaltexteffects: original Python effects engine (tte)'
   'hyprland: per-monitor fullscreen launcher + window rules'
-  'hypridle: automatic start on idle (wired up by glyphsaver-setup)'
+  'swayidle: idle handling (screensaver + lock, managed by glyphsaver-setup)'
   'chafa: PNG/SVG to ASCII art conversion'
   'alacritty: supported fullscreen terminal'
   'foot: supported fullscreen terminal'
@@ -28,7 +28,7 @@ optdepends=(
   'kitty: supported fullscreen terminal'
 )
 source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('a46390cd9157edfa7bebbb61eb1c0766063cd39ab8b2faa4d21f6236ab14b8d7')
+sha256sums=('464d9495cc4e40b1bcc82d6d2a762f948b5a28afd8aaafb505e19def69c33b69')
 
 package() {
   cd "$srcdir"
@@ -38,8 +38,11 @@ package() {
   install -Dm755 setup "$pkgdir/usr/bin/glyphsaver-setup"
   install -Dm755 uninstall.sh "$pkgdir/usr/bin/glyphsaver-uninstall"
   install -Dm755 ascii "$pkgdir/usr/bin/glyphsaver-ascii"
+  install -Dm755 idle/glyphsaver-idle "$pkgdir/usr/bin/glyphsaver-idle"
+  install -Dm644 idle/glyphsaver-idle.service "$pkgdir/usr/lib/systemd/user/glyphsaver-idle.service"
 
   local share="$pkgdir/usr/share/glyphsaver"
+  install -Dm644 idle/idle.conf.example "$share/idle/idle.conf.example"
   install -Dm644 lib.sh "$share/lib.sh"
   install -Dm644 logo.txt "$share/logo.txt"
   install -Dm644 config.example "$share/config.example"
@@ -57,7 +60,6 @@ package() {
   install -Dm644 hypr/screensaver-legacy.conf "$share/hypr/screensaver-legacy.conf"
   install -Dm644 hypr/screensaver.lua "$share/hypr/screensaver.lua"
   install -Dm644 hypr/screensaver-standalone.lua "$share/hypr/screensaver-standalone.lua"
-  install -Dm644 hypr/hypridle-snippet.conf "$share/hypr/hypridle-snippet.conf"
 
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"

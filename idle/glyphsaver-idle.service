@@ -1,0 +1,13 @@
+[Unit]
+Description=Glyphsaver idle handling (screensaver + lock via swayidle)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/glyphsaver-idle
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,7 +1,7 @@
 pkgbase = glyphsaver
 	pkgdesc = Fullscreen ASCII screensaver with TTE/ttfx text effects (Hyprland, Omarchy-inspired)
 	pkgver = 1.0.0
-	pkgrel = 10
+	pkgrel = 11
 	url = https://github.com/Rajesh2431/glyphsaver
 	arch = any
 	license = MIT
@@ -11,13 +11,13 @@ pkgbase = glyphsaver
 	optdepends = ttfx: fast Rust effects engine
 	optdepends = python-terminaltexteffects: original Python effects engine (tte)
 	optdepends = hyprland: per-monitor fullscreen launcher + window rules
-	optdepends = hypridle: automatic start on idle (wired up by glyphsaver-setup)
+	optdepends = swayidle: idle handling (screensaver + lock, managed by glyphsaver-setup)
 	optdepends = chafa: PNG/SVG to ASCII art conversion
 	optdepends = alacritty: supported fullscreen terminal
 	optdepends = foot: supported fullscreen terminal
 	optdepends = ghostty: supported fullscreen terminal
 	optdepends = kitty: supported fullscreen terminal
 	source = glyphsaver-1.0.0.tar.gz
-	sha256sums = a46390cd9157edfa7bebbb61eb1c0766063cd39ab8b2faa4d21f6236ab14b8d7
+	sha256sums = 464d9495cc4e40b1bcc82d6d2a762f948b5a28afd8aaafb505e19def69c33b69
 
 pkgname = glyphsaver

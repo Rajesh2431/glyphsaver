@@ -1,0 +1,7 @@
+# glyphsaver idle timeouts (seconds since idle began, not chained).
+# Edit by hand or via: gly time 150
+IDLE_SCREENSAVER=150
+IDLE_WARN=540
+IDLE_LOCK=600
+IDLE_DPMS=720
+IDLE_ICON="$HOME/.config/swaync/images/ja.png"

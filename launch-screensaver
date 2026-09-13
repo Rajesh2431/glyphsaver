@@ -122,12 +122,6 @@ cmd_preview() {
   fi
 }
 
-HYPRIDLE_FILE="$HOME/.config/hypr/hypridle.conf"
-
-launcher_cmd() {
-  command -v glyphsaver 2>/dev/null || echo "$SCRIPT_DIR/launch-screensaver"
-}
-
 cmd_set_text() {
   local text="${1:-}"
   [[ -z "$text" ]] && {
@@ -153,27 +147,24 @@ cmd_set_text() {
 
 cmd_time() {
   local arg="${1:-}"
+  local idle_conf="$HOME/.config/glyphsaver/idle.conf"
   if [[ -z "$arg" ]]; then
-    local cur=""
-    [[ -f "$HYPRIDLE_FILE" ]] && cur=$(grep -A3 ">>> glyphsaver" "$HYPRIDLE_FILE" 2>/dev/null | grep -oE 'timeout = [0-9]+' | grep -oE '[0-9]+' | head -1)
-    if [[ -n "$cur" ]]; then
-      echo "idle timeout: ${cur}s (hypridle)"
-    else
-      echo "idle timeout: not set (hypridle)"
-    fi
+    echo "idle timeout: $(ss_config_get IDLE_SCREENSAVER "$idle_conf")s (swayidle)"
     return 0
   fi
   [[ "$arg" =~ ^[0-9]+$ ]] && ((arg > 0)) || {
     echo "Usage: glyphsaver time SECONDS  (e.g. glyphsaver time 150)" >&2
     return 1
   }
-  ((arg >= 600)) && echo "Note: locks usually fire ~600s — start the saver before that."
-  if [[ -f "$HYPRIDLE_FILE" && ! -f "$HYPRIDLE_FILE.bak" ]]; then
-    cp "$HYPRIDLE_FILE" "$HYPRIDLE_FILE.bak" && echo "(backup: $HYPRIDLE_FILE.bak)"
-  fi
-  ss_write_hypridle "$arg" "$(launcher_cmd)" "$HYPRIDLE_FILE"
+  ((arg >= 600)) && echo "Note: the screen locks around 600s — start the saver before that."
+  [[ -f "$idle_conf" ]] || cp "$ASSET_DIR/idle/idle.conf.example" "$idle_conf" 2>/dev/null || true
+  ss_config_set IDLE_SCREENSAVER "$arg" "$idle_conf"
   echo "idle timeout set to ${arg}s."
-  echo "hypridle only reads its config at startup — restart it: pkill hypridle; nohup hypridle >/tmp/hypridle.log 2>&1 &"
+  if systemctl --user restart glyphsaver-idle.service 2>/dev/null; then
+    echo "idle service restarted."
+  else
+    echo "Start the idle service: systemctl --user enable --now glyphsaver-idle.service"
+  fi
 }
 
 cmd_effect() {

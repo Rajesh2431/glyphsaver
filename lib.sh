@@ -72,8 +72,8 @@ ss_config_set() {
   mv "$tmp" "$file"
 }
 
-# Write/replace the managed hypridle listener block for TIMEOUT secs.
-# Inserts before the Screenlock listener when one exists, else appends.
+# Legacy (pre-swayidle): write/replace a managed hypridle listener block.
+# Kept so old installs clean up; new installs use the swayidle service.
 ss_write_hypridle() {
   local secs="$1" launcher="$2" file="$3"
   local begin=">>> glyphsaver (managed) >>>" end="<<< glyphsaver (managed) <<<"

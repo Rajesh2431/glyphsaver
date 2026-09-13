@@ -1,0 +1,46 @@
+#!/bin/bash
+# glyphsaver-idle: run swayidle with glyphsaver timeouts.
+# Settings live in ~/.config/glyphsaver/idle.conf (gly time edits it).
+# Started via the glyphsaver-idle.service systemd user unit.
+
+set -u
+
+IDLE_CONF="$HOME/.config/glyphsaver/idle.conf"
+IDLE_SCREENSAVER=150
+IDLE_WARN=540
+IDLE_LOCK=600
+IDLE_DPMS=720
+IDLE_ICON="$HOME/.config/swaync/images/ja.png"
+# shellcheck disable=SC1090
+[[ -f "$IDLE_CONF" ]] && source "$IDLE_CONF"
+
+LAUNCHER="$(command -v glyphsaver 2>/dev/null || echo "$HOME/.local/bin/glyphsaver")"
+
+command -v swayidle &>/dev/null || {
+  echo "swayidle is not installed: sudo pacman -S swayidle" >&2
+  exit 1
+}
+
+# hyprctl form that works on Lua-mode and classic Hyprland alike.
+dpms() {
+  hyprctl keyword cursor:invisible false &>/dev/null
+  hyprctl dispatch "hl.dsp.dpms({ action = \"$1\" })" &>/dev/null ||
+    hyprctl dispatch dpms "$1" &>/dev/null || true
+}
+
+case "${1:-run}" in
+run)
+  exec swayidle -w \
+    timeout "$IDLE_SCREENSAVER" "$LAUNCHER" resume "$LAUNCHER stop" \
+    timeout "$IDLE_WARN" "notify-send -i \"$IDLE_ICON\" \" You are idle!\"" resume "notify-send -i \"$IDLE_ICON\" \" Oh! you're Back\" \" Hello !!!\"" \
+    timeout "$IDLE_LOCK" "loginctl lock-session" \
+    timeout "$IDLE_DPMS" "hyprctl dispatch \"hl.dsp.dpms({ action = \\\"off\\\" })\"" resume "hyprctl dispatch \"hl.dsp.dpms({ action = \\\"on\\\" })\"" \
+    before-sleep "loginctl lock-session"
+  ;;
+dpms-off) dpms off ;;
+dpms-on) dpms on ;;
+*)
+  echo "Usage: glyphsaver-idle [run|dpms-off|dpms-on]" >&2
+  exit 1
+  ;;
+esac

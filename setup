@@ -1,7 +1,7 @@
 #!/bin/bash
 # Interactive setup for glyphsaver.
 # Asks for idle timeout, screensaver text/art, engine — then wires up
-# hypridle, Hyprland window rules, and art auto-fitted to your screen.
+# swayidle service, Hyprland window rules, and art auto-fitted to your screen.
 # Safe to re-run. Idempotent: managed blocks are replaced, files backed up (.bak).
 # Usage: setup [--yes] [--idle SEC] [--text "..."] [--image IMG] [--art FILE] [--engine auto|ttfx|tte]
 
@@ -17,7 +17,6 @@ INNER_BIN="$SCRIPT_DIR/screensaver"
 [[ -x "$INNER_BIN" ]] || INNER_BIN="$(command -v glyphsaver-loop 2>/dev/null || echo "$INNER_BIN")"
 
 HYPR_DIR="$HOME/.config/hypr"
-HYPRIDLE="$HYPR_DIR/hypridle.conf"
 LUA_RULES="$HYPR_DIR/UserConfigs/user_window_rules.lua"
 CONFIG="$HOME/.config/glyphsaver/config"
 BEGIN_MARK=">>> glyphsaver (managed) >>>"
@@ -163,15 +162,15 @@ fi
 ss_config_set SCREENSAVER_ENGINE "$ENGINE" "$CONFIG"
 echo "Engine saved: $ENGINE"
 
-# ---------- 3. idle timeout ----------
+# ---------- 3. idle timeout (swayidle service) ----------
 echo "=== 3/5 idle timeout ==="
-echo "Start the screensaver after how long idle? (your lock fires at ~600s)"
+echo "Start the screensaver after how long idle? (screen locks at ~600s)"
 echo "  1) 60s — quick (1 min)"
-echo "  2) 150s — Omarchy default, recommended"
+echo "  2) 150s — recommended default"
 echo "  3) 300s — relaxed (5 min)"
-echo "  4) 480s — just before your 10-min lock"
+echo "  4) 480s — just before the 10-min lock"
 echo "  5) custom seconds"
-echo "  6) skip — don't touch hypridle"
+echo "  6) skip — don't touch idle handling"
 IDLE_CHOICE="$OPT_IDLE"
 if [[ -z "$IDLE_CHOICE" ]]; then
   IDLE_CHOICE="$(ask "Idle choice" "2")"
@@ -186,59 +185,34 @@ case "$IDLE_CHOICE" in
   IDLE_SECS="$(ask "Custom seconds" "150")"
   ;;
 6 | skip | "")
-  echo "Skipping hypridle changes."
+  echo "Skipping idle changes."
   ;;
 *)
   if [[ "$IDLE_CHOICE" =~ ^[0-9]+$ ]]; then
     IDLE_SECS="$IDLE_CHOICE"
   else
-    echo "Unknown choice, skipping hypridle changes."
+    echo "Unknown choice, skipping idle changes."
   fi
   ;;
 esac
 
+IDLE_CONF="$HOME/.config/glyphsaver/idle.conf"
+UNIT_DIR="$HOME/.config/systemd/user"
 if [[ -n "$IDLE_SECS" ]]; then
-  if pgrep -x swayidle &>/dev/null; then
-    echo "Note: swayidle is running too — both daemons may fire. Disable one if they overlap."
+  if ! command -v swayidle &>/dev/null; then
+    echo "swayidle is not installed (needed for idle handling):"
+    echo "  sudo pacman -S swayidle"
   fi
-  if [[ -f "$HYPRIDLE" ]]; then
-    backup "$HYPRIDLE"
-    ss_write_hypridle "$IDLE_SECS" "$LAUNCHER" "$HYPRIDLE"
-    echo "hypridle: screensaver listener at ${IDLE_SECS}s (before your lock)."
-    if pgrep -x hypridle &>/dev/null; then
-      # hypridle only reads its config at startup — a running instance
-      # would otherwise keep enforcing the old config forever.
-      restart="$(ask "Restart hypridle now to apply (recommended)" "Y")"
-      if [[ "$restart" =~ ^[Yy] ]]; then
-        pkill -x hypridle 2>/dev/null || true
-        sleep 1
-        if pgrep -x hypridle &>/dev/null; then
-          echo "Old hypridle would not stop — start the new one manually:"
-          echo "  pkill -9 hypridle; nohup hypridle >/tmp/hypridle.log 2>&1 &"
-        else
-          nohup hypridle >/tmp/hypridle.log 2>&1 &
-          sleep 1
-          pgrep -x hypridle &>/dev/null && echo "hypridle restarted." || echo "hypridle failed to start — check /tmp/hypridle.log"
-        fi
-      else
-        echo "Restart hypridle yourself for it to apply (e.g. pkill hypridle; hypridle &)."
-      fi
-    else
-      echo "hypridle is not running — start it: nohup hypridle >/tmp/hypridle.log 2>&1 &"
-      echo "And autostart it (Hyprland exec-once or a systemd user service)."
-    fi
+  [[ -f "$IDLE_CONF" ]] || cp "$ASSET_DIR/idle/idle.conf.example" "$IDLE_CONF" 2>/dev/null || true
+  ss_config_set IDLE_SCREENSAVER "$IDLE_SECS" "$IDLE_CONF"
+  mkdir -p "$UNIT_DIR"
+  cp "$ASSET_DIR/idle/glyphsaver-idle.service" "$UNIT_DIR/glyphsaver-idle.service"
+  systemctl --user daemon-reload 2>/dev/null || true
+  if systemctl --user enable --now glyphsaver-idle.service 2>/dev/null; then
+    echo "Idle service running: screensaver at ${IDLE_SECS}s, warn 540s, lock 600s, screen-off 720s."
   else
-    echo "No $HYPRIDLE found."
-    mkidle="$(ask "Create a minimal hypridle.conf with just the screensaver listener" "Y")"
-    if [[ "$mkidle" =~ ^[Yy] ]]; then
-      mkdir -p "$(dirname "$HYPRIDLE")"
-      printf '# %s\nlistener {\n    timeout = %s\n    on-timeout = %s\n}\n# %s\n' \
-        "$BEGIN_MARK" "$IDLE_SECS" "$LAUNCHER" "$END_MARK" >"$HYPRIDLE"
-      echo "Created $HYPRIDLE — make sure hypridle autostarts (exec-once or systemd)."
-    else
-      echo "Add this yourself:"
-      echo "  listener { timeout = $IDLE_SECS; on-timeout = $LAUNCHER; }"
-    fi
+    echo "Idle timeout saved (${IDLE_SECS}s). Start the service once swayidle exists:"
+    echo "  sudo pacman -S swayidle && systemctl --user enable --now glyphsaver-idle.service"
   fi
 fi
 

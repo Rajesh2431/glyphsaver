@@ -63,8 +63,14 @@ pkill -f 'app-id=glyphsaver' 2>/dev/null || true
 command -v hyprctl &>/dev/null && hyprctl keyword cursor:invisible false &>/dev/null || true
 echo "stopped."
 
+echo "=== stop idle service ==="
+systemctl --user disable --now glyphsaver-idle.service 2>/dev/null || true
+pkill -x swayidle 2>/dev/null || true
+rm -f "$HOME/.config/systemd/user/glyphsaver-idle.service"
+echo "idle service removed (re-enable anytime: glyphsaver-setup)."
+
 echo "=== remove launchers ==="
-for link in glyphsaver glyphsaver-loop glyphsaver-setup glyphsaver-uninstall gly omarchy-style-screensaver omarchy-style-launch-screensaver omarchy-style-setup; do
+for link in glyphsaver glyphsaver-loop glyphsaver-setup glyphsaver-uninstall gly glyphsaver-idle glyphsaver-ascii omarchy-style-screensaver omarchy-style-launch-screensaver omarchy-style-setup; do
   if [[ -L "$HOME/.local/bin/$link" || -f "$HOME/.local/bin/$link" ]]; then
     rm -f "$HOME/.local/bin/$link" && echo "removed ~/.local/bin/$link"
   fi
