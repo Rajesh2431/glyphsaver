@@ -1,0 +1,374 @@
+#!/bin/bash
+# Interactive setup for glyphsaver.
+# Asks for idle timeout, screensaver text/art, engine — then wires up
+# hypridle, Hyprland window rules, and art auto-fitted to your screen.
+# Safe to re-run. Idempotent: managed blocks are replaced, files backed up (.bak).
+# Usage: setup [--yes] [--idle SEC] [--text "..."] [--image IMG] [--art FILE] [--engine auto|ttfx|tte]
+
+set -u
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib.sh" 2>/dev/null || source /usr/share/glyphsaver/lib.sh
+ASSET_DIR="$(ss_asset_dir)"
+LAUNCHER="$SCRIPT_DIR/launch-screensaver"
+[[ -x "$LAUNCHER" ]] || LAUNCHER="$(command -v glyphsaver 2>/dev/null || echo "$LAUNCHER")"
+
+HYPR_DIR="$HOME/.config/hypr"
+HYPRIDLE="$HYPR_DIR/hypridle.conf"
+LUA_RULES="$HYPR_DIR/UserConfigs/user_window_rules.lua"
+CONFIG="$HOME/.config/glyphsaver/config"
+BEGIN_MARK=">>> glyphsaver (managed) >>>"
+END_MARK="<<< glyphsaver (managed) <<<"
+
+# Config exists from here on so every choice below can persist immediately.
+mkdir -p "$(dirname "$CONFIG")"
+# One-time migration from the pre-rename project name (before defaults).
+if [[ -f "$HOME/.config/omarchy-style-screensaver/config" && ! -f "$CONFIG" ]]; then
+  cp "$HOME/.config/omarchy-style-screensaver/config" "$CONFIG"
+  echo "(migrated settings from omarchy-style-screensaver)"
+fi
+if [[ ! -f "$CONFIG" && -f "$ASSET_DIR/config.example" ]]; then
+  cp "$ASSET_DIR/config.example" "$CONFIG"
+fi
+if [[ -f "$HOME/.local/state/omarchy-style-screensaver/off" ]]; then
+  mkdir -p "$HOME/.local/state/glyphsaver"
+  mv "$HOME/.local/state/omarchy-style-screensaver/off" "$HOME/.local/state/glyphsaver/off"
+  echo "(migrated toggle state)"
+fi
+
+YES=0
+OPT_IDLE=""
+OPT_TEXT=""
+OPT_IMAGE=""
+OPT_ART=""
+OPT_ENGINE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --yes) YES=1; shift ;;
+  --idle) OPT_IDLE="$2"; shift 2 ;;
+  --text) OPT_TEXT="$2"; shift 2 ;;
+  --image) OPT_IMAGE="$2"; shift 2 ;;
+  --art) OPT_ART="$2"; shift 2 ;;
+  --engine) OPT_ENGINE="$2"; shift 2 ;;
+  -h | --help)
+    echo "Usage: setup [--yes] [--idle SEC] [--text ...] [--image IMG] [--art FILE] [--engine auto|ttfx|tte]"
+    exit 0
+    ;;
+  *)
+    echo "Unknown arg: $1" >&2
+    exit 1
+    ;;
+  esac
+done
+
+ask() {
+  local prompt="$1" def="$2" var
+  if ((YES)); then
+    echo "$def"
+    return 0
+  fi
+  read -rp "$prompt [$def]: " var || true
+  if [[ -z "${var:-}" ]]; then
+    echo "$def"
+  else
+    echo "$var"
+  fi
+}
+
+backup() {
+  local f="$1"
+  [[ -f "$f" && ! -f "$f.bak" ]] && cp "$f" "$f.bak" && echo "(backup: $f.bak)"
+}
+
+strip_managed_block() {
+  local f="$1"
+  [[ -f "$f" ]] || return 0
+  awk -v b="$BEGIN_MARK" -v e="$END_MARK" '
+    index($0, b) { skip=1; next }
+    index($0, e) { skip=0; next }
+    !skip { print }
+  ' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+}
+
+# ---------- 1. dependencies ----------
+echo "=== 1/5 dependencies ==="
+have_ttfx=0
+have_tte=0
+command -v ttfx &>/dev/null && have_ttfx=1
+command -v tte &>/dev/null && have_tte=1
+echo "engine: ttfx=$have_ttfx tte=$have_tte"
+need_pacman=()
+for dep in jq socat chafa figlet; do
+  if command -v "$dep" &>/dev/null; then
+    echo "  $dep: OK"
+  else
+    echo "  $dep: MISSING"
+    need_pacman+=("$dep")
+  fi
+done
+if command -v hyprctl &>/dev/null; then
+  echo "  hyprctl: OK"
+else
+  echo "  hyprctl: MISSING (screensaver will run inline, no multi-monitor)"
+fi
+if ((${#need_pacman[@]})); then
+  inst="$(ask "Install missing packages (${need_pacman[*]}) via pacman" "Y")"
+  if [[ "$inst" =~ ^[Yy] ]]; then
+    if sudo pacman -S --needed --noconfirm "${need_pacman[@]}"; then
+      echo "Dependencies installed."
+    else
+      echo "Automatic install failed — run manually:"
+      echo "  sudo pacman -S --needed ${need_pacman[*]}"
+    fi
+  else
+    echo "Skipped (plain-text art without figlet; no image import without chafa)."
+  fi
+fi
+if ((have_ttfx == 0 && have_tte == 0)); then
+  echo "No effects engine found."
+  helper=""
+  command -v yay &>/dev/null && helper="yay"
+  [[ -z "$helper" ]] && command -v paru &>/dev/null && helper="paru"
+  if [[ -n "$helper" ]]; then
+    ans="$(ask "Install python-terminaltexteffects (tte) via $helper" "Y")"
+    if [[ "$ans" =~ ^[Yy] ]] && "$helper" -S --noconfirm python-terminaltexteffects; then
+      have_tte=1
+    fi
+  fi
+  if ((have_ttfx == 0 && have_tte == 0)); then
+    echo "Still no engine. Install one, then re-run setup:"
+    echo "  yay -S python-terminaltexteffects                       # original Python TTE"
+    echo "  cargo install --git https://github.com/omacom-io/ttfx  # fast Rust port"
+    exit 1
+  fi
+fi
+
+# ---------- 2. engine ----------
+echo "=== 2/5 engine ==="
+ENGINE="$OPT_ENGINE"
+if [[ -z "$ENGINE" ]]; then
+  echo "Which engine? 1) auto [default] 2) ttfx (fast) 3) tte (original)"
+  case "$(ask "Engine" "1")" in
+  2) ENGINE="ttfx" ;;
+  3) ENGINE="tte" ;;
+  *) ENGINE="auto" ;;
+  esac
+fi
+ss_config_set SCREENSAVER_ENGINE "$ENGINE" "$CONFIG"
+echo "Engine saved: $ENGINE"
+
+# ---------- 3. idle timeout ----------
+echo "=== 3/5 idle timeout ==="
+echo "Start the screensaver after how long idle? (your lock fires at ~600s)"
+echo "  1) 60s — quick (1 min)"
+echo "  2) 150s — Omarchy default, recommended"
+echo "  3) 300s — relaxed (5 min)"
+echo "  4) 480s — just before your 10-min lock"
+echo "  5) custom seconds"
+echo "  6) skip — don't touch hypridle"
+IDLE_CHOICE="$OPT_IDLE"
+if [[ -z "$IDLE_CHOICE" ]]; then
+  IDLE_CHOICE="$(ask "Idle choice" "2")"
+fi
+IDLE_SECS=""
+case "$IDLE_CHOICE" in
+1 | 60) IDLE_SECS=60 ;;
+2 | 150) IDLE_SECS=150 ;;
+3 | 300) IDLE_SECS=300 ;;
+4 | 480) IDLE_SECS=480 ;;
+5)
+  IDLE_SECS="$(ask "Custom seconds" "150")"
+  ;;
+6 | skip | "")
+  echo "Skipping hypridle changes."
+  ;;
+*)
+  if [[ "$IDLE_CHOICE" =~ ^[0-9]+$ ]]; then
+    IDLE_SECS="$IDLE_CHOICE"
+  else
+    echo "Unknown choice, skipping hypridle changes."
+  fi
+  ;;
+esac
+
+if [[ -n "$IDLE_SECS" ]]; then
+  if pgrep -x swayidle &>/dev/null; then
+    echo "Note: swayidle is running too — both daemons may fire. Disable one if they overlap."
+  fi
+  if [[ -f "$HYPRIDLE" ]]; then
+    backup "$HYPRIDLE"
+    ss_write_hypridle "$IDLE_SECS" "$LAUNCHER" "$HYPRIDLE"
+    echo "hypridle: screensaver listener at ${IDLE_SECS}s (before your lock)."
+    echo "Restart hypridle for it to apply (e.g. systemctl --user restart hypridle)."
+  else
+    echo "No $HYPRIDLE found."
+    mkidle="$(ask "Create a minimal hypridle.conf with just the screensaver listener" "Y")"
+    if [[ "$mkidle" =~ ^[Yy] ]]; then
+      mkdir -p "$(dirname "$HYPRIDLE")"
+      printf '# %s\nlistener {\n    timeout = %s\n    on-timeout = %s\n}\n# %s\n' \
+        "$BEGIN_MARK" "$IDLE_SECS" "$LAUNCHER" "$END_MARK" >"$HYPRIDLE"
+      echo "Created $HYPRIDLE — make sure hypridle autostarts (exec-once or systemd)."
+    else
+      echo "Add this yourself:"
+      echo "  listener { timeout = $IDLE_SECS; on-timeout = $LAUNCHER; }"
+    fi
+  fi
+fi
+
+# ---------- 4. art / text ----------
+echo "=== 4/5 screensaver art ==="
+echo "Screen fits ~$(ss_max_cols) text columns fullscreen."
+ART_MODE=""
+ART_VAL=""
+if [[ -n "$OPT_TEXT" ]]; then
+  ART_MODE=text
+  ART_VAL="$OPT_TEXT"
+elif [[ -n "$OPT_IMAGE" ]]; then
+  ART_MODE=image
+  ART_VAL="$OPT_IMAGE"
+elif [[ -n "$OPT_ART" ]]; then
+  ART_MODE=file
+  ART_VAL="$OPT_ART"
+else
+  echo "What should the screensaver show?"
+  echo "  1) custom text [default]"
+  echo "  2) image file (PNG/SVG -> ASCII via chafa)"
+  echo "  3) existing .txt art file"
+  echo "  4) keep current ($(ss_resolve_art))"
+  case "$(ask "Art choice" "1")" in
+  2)
+    ART_MODE=image
+    ART_VAL="$(ask "Image path" "")"
+    ;;
+  3)
+    ART_MODE=file
+    ART_VAL="$(ask "Art .txt path" "")"
+    ;;
+  4)
+    ART_MODE=keep
+    ;;
+  *)
+    ART_MODE=text
+    ART_VAL="$(ask "Text" "${USER:-Arch}")"
+    ;;
+  esac
+fi
+
+case "$ART_MODE" in
+text)
+  if [[ -z "$ART_VAL" ]]; then
+    echo "Empty text, keeping current art."
+  else
+    tmp=$(mktemp)
+    style=$(ss_render_text "$ART_VAL" "$tmp")
+    ss_write_art "$tmp"
+    rm -f "$tmp"
+    echo "Art set to \"$ART_VAL\" ($style)."
+    # Persist the chosen font as the default style: later text changes
+    # reuse it via `glyphsaver set-text}.
+    if [[ "$style" == figlet/* ]]; then
+      _font="${style#figlet/}"
+      _font="${_font%% *}"
+    else
+      _font="plain"
+    fi
+    ss_config_set SCREENSAVER_FONT "$_font" "$CONFIG"
+    echo "Style saved as default: $_font"
+  fi
+  ;;
+image)
+  if [[ -f "${ART_VAL:-}" ]] && command -v chafa &>/dev/null; then
+    tmp=$(mktemp)
+    chafa --format symbols --symbols braille --size 100x30 "$ART_VAL" >"$tmp"
+    ss_write_art "$tmp"
+    rm -f "$tmp"
+    echo "Art converted from $ART_VAL."
+  else
+    echo "Image missing or chafa not installed — keeping current art."
+  fi
+  ;;
+file)
+  if [[ -f "${ART_VAL:-}" ]]; then
+    ss_write_art "$ART_VAL"
+    echo "Art set from $ART_VAL."
+  else
+    echo "File not found — keeping current art."
+  fi
+  ;;
+keep)
+  echo "Keeping: $(ss_resolve_art)"
+  ;;
+esac
+
+# ---------- 5. Hyprland window rules ----------
+# Adapts to whatever Hyprland config style the machine uses:
+#   a) KoolDots-style Lua (user_window_rules.lua + apply_window_rule helper)
+#   b) other Lua-mode setups (own module + one dofile line in hyprland.lua)
+#   c) plain hyprland.conf (source line; syntax picked by Hyprland version)
+echo "=== 5/5 Hyprland window rules ==="
+if [[ -f "$LUA_RULES" ]] && grep -q "apply_window_rule" "$LUA_RULES"; then
+  if grep -q "$BEGIN_MARK" "$LUA_RULES"; then
+    echo "Lua rules already present."
+  else
+    backup "$LUA_RULES"
+    {
+      echo ""
+      echo "-- $BEGIN_MARK"
+      awk '/^apply_window_rule/,0' "$ASSET_DIR/hypr/screensaver.lua"
+      echo "-- $END_MARK"
+    } >>"$LUA_RULES"
+    echo "Appended screensaver rules to UserConfigs/user_window_rules.lua"
+    echo "Run: hyprctl reload (config errors will show there)."
+  fi
+elif [[ -f "$HYPR_DIR/hyprland.lua" ]]; then
+  mod="$HYPR_DIR/glyphsaver.lua"
+  cp "$ASSET_DIR/hypr/screensaver-standalone.lua" "$mod"
+  if grep -q "glyphsaver.lua" "$HYPR_DIR/hyprland.lua"; then
+    echo "hyprland.lua already loads the screensaver module."
+  else
+    backup "$HYPR_DIR/hyprland.lua"
+    {
+      echo ""
+      echo "-- $BEGIN_MARK"
+      echo 'dofile(os.getenv("HOME") .. "/.config/hypr/glyphsaver.lua")'
+      echo "-- $END_MARK"
+    } >>"$HYPR_DIR/hyprland.lua"
+    echo "Installed $mod and hooked it into hyprland.lua"
+    echo "Run: hyprctl reload (the module is pcall-guarded; it can't break your config)."
+  fi
+elif [[ -f "$HYPR_DIR/hyprland.conf" ]]; then
+  if ss_hypr_new_syntax; then
+    rule_file="screensaver.conf"
+  else
+    rule_file="screensaver-legacy.conf"
+  fi
+  src="source = $ASSET_DIR/hypr/$rule_file"
+  if grep -q "screensaver.*\.conf" "$HYPR_DIR/hyprland.conf"; then
+    echo "hyprland.conf already sources screensaver rules."
+  else
+    backup "$HYPR_DIR/hyprland.conf"
+    echo "$src" >>"$HYPR_DIR/hyprland.conf"
+    echo "Added source line to hyprland.conf ($rule_file)."
+  fi
+else
+  echo "No Hyprland config found — not a Hyprland machine?"
+  echo "The screensaver still runs inline in any terminal: $LAUNCHER preview"
+fi
+
+# ---------- config file ----------
+mkdir -p "$HOME/.config/glyphsaver"
+if [[ ! -f "$HOME/.config/glyphsaver/config" ]]; then
+  cp "$ASSET_DIR/config.example" "$HOME/.config/glyphsaver/config" 2>/dev/null || true
+fi
+
+echo ""
+echo "Done. Preview: $LAUNCHER preview matrix"
+echo "Start now:  $LAUNCHER force   (any key exits)"
+if ((YES == 0)); then
+  prev="$(ask "Run a preview now? (y/N)" "N")"
+  if [[ "$prev" =~ ^[Yy] ]]; then
+    "$LAUNCHER" preview matrix
+  fi
+fi

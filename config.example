@@ -1,0 +1,13 @@
+# glyphsaver config (sourced by `glyphsaver-loop`).
+# Uncomment/edit to change defaults; CLI flags override these.
+# SCREENSAVER_ENGINE=auto
+# SCREENSAVER_FPS=120
+# SCREENSAVER_MODE=random
+# SCREENSAVER_EFFECT=matrix
+# SCREENSAVER_INCLUDE=""
+# SCREENSAVER_EXCLUDE="bouncyballs"
+# SCREENSAVER_ART=$HOME/.config/omarchy/branding/screensaver.txt
+# Default text style, saved automatically by `setup` / `set-text`
+# (standard|small|mini|plain; empty = auto-fit on next set-text).
+# Changing text later with `glyphsaver set-text "..."` reuses it.
+# SCREENSAVER_FONT=""

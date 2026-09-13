@@ -1,0 +1,12 @@
+# makepkg build dirs and artifacts
+src/
+pkg/
+*.pkg.tar.zst
+*.log
+*.bak
+*~
+
+# editor / OS noise
+.vscode/
+.idea/
+.DS_Store

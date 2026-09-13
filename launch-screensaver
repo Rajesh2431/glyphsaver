@@ -1,0 +1,523 @@
+#!/bin/bash
+# Glyphsaver: fullscreen ASCII screensaver control (one terminal per monitor).
+# Short alias `gly` runs the same commands (e.g. `gly time 150`).
+# Ported from basecamp/omarchy `omarchy-launch-screensaver` (quattro branch).
+#
+# Usage: glyphsaver <command> [args]   (short alias: gly)
+#   launch | force [flags]  start (force bypasses toggle); flags pass to the loop
+#   stop                    kill a running screensaver
+#   toggle [on|off|status]  enable/disable idle starts (no arg flips)
+#   status                  running state, toggle, engines, art, style
+#   show | config           all saved settings (art, style, engine, mode, filters, fps, idle)
+#   preview [EFFECT]        one effect cycle inline (any key exits)
+#   list-effects            the 37 available effects
+#   time SECONDS            set idle timeout, e.g. `glyphsaver time 150`
+#   time                    show current idle timeout
+#   text "words"            change displayed text (style stays default)
+#   effect NAME | random    fixed effect, or back to random
+#   include "a b" | clear   random pool allow-list (clears exclude)
+#   exclude "a b" | clear   random pool block-list (clears include)
+#   fps N                   frame rate 1-1000 (default 120)
+#   engine auto|ttfx|tte    effects engine
+#   style FONT | auto       default text style: standard|small|mini|plain|auto
+#   set-image IMG           convert PNG/SVG to ASCII art (needs chafa)
+#   set-art FILE            use an existing .txt art file
+#   edit-art                open current art in $EDITOR
+#   reset-art               restore bundled logo
+#   help                    this help
+#
+# Loop flags (--effect, --fps, --include, --exclude, --engine, --art, --random)
+# may follow launch/force/preview for one-off runs without saving.
+
+set -u
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
+INNER="$SCRIPT_DIR/screensaver"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib.sh" 2>/dev/null || source /usr/share/glyphsaver/lib.sh
+ASSET_DIR="$(ss_asset_dir)"
+# Installed layout: binaries live on PATH, assets under /usr/share.
+if [[ ! -x "$INNER" ]] && command -v glyphsaver-loop &>/dev/null; then
+  INNER="$(command -v glyphsaver-loop)"
+fi
+STATE_DIR="$HOME/.local/state/glyphsaver"
+OFF_FILE="$STATE_DIR/off"
+CONFIG_DIR="$HOME/.config/glyphsaver"
+CONFIG_FILE="$CONFIG_DIR/config"
+
+[[ -x "$INNER" ]] || {
+  echo "Error: inner script not found/executable: $INNER" >&2
+  exit 1
+}
+mkdir -p "$STATE_DIR" "$CONFIG_DIR"
+
+# Art resolution: legacy omarchy path > local art > bundled logo.
+resolve_art() {
+  ss_resolve_art
+}
+
+write_art() {
+  ss_write_art "$1"
+  echo "Art updated."
+}
+
+is_running() {
+  if command -v hyprctl &>/dev/null; then
+    hyprctl clients -j 2>/dev/null | jq -e '[.[] | select(.class == "glyphsaver")] | length > 0' >/dev/null 2>&1
+  else
+    local p
+    p=$(pgrep -f '[g]lyphsaver' 2>/dev/null | grep -v "^$$\$" || true)
+    [[ -n "$p" ]]
+  fi
+}
+is_off() { [[ -f "$OFF_FILE" ]]; }
+
+cmd_status() {
+  is_running && echo "screensaver: RUNNING" || echo "screensaver: stopped"
+  is_off && echo "idle screensaver: OFF" || echo "idle screensaver: ON"
+  echo "engine: $(command -v ttfx &>/dev/null && echo "ttfx ($(command -v ttfx))" || echo "ttfx missing"), $(command -v tte &>/dev/null && echo "tte ($(command -v tte))" || echo "tte missing")"
+  echo "art: $(resolve_art)"
+  _font="$(ss_config_get SCREENSAVER_FONT "$CONFIG_FILE")"
+  echo "style: ${_font:-auto-fit} (change text anytime with set-text; style stays)"
+}
+
+cmd_toggle() {
+  case "${1:-}" in
+  on)
+    rm -f "$OFF_FILE"
+    echo "idle screensaver: ON"
+    ;;
+  off)
+    touch "$OFF_FILE"
+    echo "idle screensaver: OFF"
+    ;;
+  status)
+    is_off && echo "OFF" || echo "ON"
+    ;;
+  *)
+    if is_off; then
+      rm -f "$OFF_FILE"
+      echo "idle screensaver: ON"
+    else
+      touch "$OFF_FILE"
+      echo "idle screensaver: OFF"
+    fi
+    ;;
+  esac
+}
+
+cmd_preview() {
+  local effect="${1:-}"
+  if [[ -n "$effect" ]]; then
+    exec "$INNER" --once --effect "$effect" "${PASSTHROUGH[@]}"
+  else
+    exec "$INNER" --once "${PASSTHROUGH[@]}"
+  fi
+}
+
+HYPRIDLE_FILE="$HOME/.config/hypr/hypridle.conf"
+
+launcher_cmd() {
+  command -v glyphsaver 2>/dev/null || echo "$SCRIPT_DIR/launch-screensaver"
+}
+
+cmd_set_text() {
+  local text="${1:-}"
+  [[ -z "$text" ]] && {
+    echo "Usage: glyphsaver text \"Your Text\"" >&2
+    return 1
+  }
+  local tmp style _stored _font
+  tmp=$(mktemp)
+  # Reuse the stored default style; empty/unset means auto-fit, and the
+  # first auto-fit becomes the default. Overlong text cascades smaller
+  # but never changes the default.
+  _stored="$(ss_config_get SCREENSAVER_FONT "$CONFIG_FILE")"
+  style=$(ss_render_text "$text" "$tmp" "$_stored")
+  write_art "$tmp"
+  echo "Style: $style"
+  if [[ -z "$_stored" ]]; then
+    if [[ "$style" == figlet/* ]]; then
+      _font="${style#figlet/}"
+      _font="${_font%% *}"
+    else
+      _font="plain"
+    fi
+    ss_config_set SCREENSAVER_FONT "$_font" "$CONFIG_FILE"
+    echo "Style saved as default: $_font"
+  fi
+  rm -f "$tmp"
+}
+
+cmd_time() {
+  local arg="${1:-}"
+  if [[ -z "$arg" ]]; then
+    local cur=""
+    [[ -f "$HYPRIDLE_FILE" ]] && cur=$(grep -A3 ">>> glyphsaver" "$HYPRIDLE_FILE" 2>/dev/null | grep -oE 'timeout = [0-9]+' | grep -oE '[0-9]+' | head -1)
+    if [[ -n "$cur" ]]; then
+      echo "idle timeout: ${cur}s (hypridle)"
+    else
+      echo "idle timeout: not set (hypridle)"
+    fi
+    return 0
+  fi
+  [[ "$arg" =~ ^[0-9]+$ ]] && ((arg > 0)) || {
+    echo "Usage: glyphsaver time SECONDS  (e.g. glyphsaver time 150)" >&2
+    return 1
+  }
+  ((arg >= 600)) && echo "Note: locks usually fire ~600s — start the saver before that."
+  if [[ -f "$HYPRIDLE_FILE" && ! -f "$HYPRIDLE_FILE.bak" ]]; then
+    cp "$HYPRIDLE_FILE" "$HYPRIDLE_FILE.bak" && echo "(backup: $HYPRIDLE_FILE.bak)"
+  fi
+  ss_write_hypridle "$arg" "$(launcher_cmd)" "$HYPRIDLE_FILE"
+  echo "idle timeout set to ${arg}s. Restart hypridle to apply."
+}
+
+cmd_effect() {
+  local arg="${1:-}"
+  if [[ -z "$arg" ]]; then
+    echo "mode: $(ss_config_get SCREENSAVER_MODE "$CONFIG_FILE")"
+    echo "effect: $(ss_config_get SCREENSAVER_EFFECT "$CONFIG_FILE")"
+    return 0
+  fi
+  if [[ "$arg" == "random" ]]; then
+    ss_config_set SCREENSAVER_MODE "random" "$CONFIG_FILE"
+    echo "effect: random"
+    return 0
+  fi
+  if "$INNER" --list-effects 2>/dev/null | grep -qx "$arg"; then
+    ss_config_set SCREENSAVER_MODE "single" "$CONFIG_FILE"
+    ss_config_set SCREENSAVER_EFFECT "$arg" "$CONFIG_FILE"
+    echo "effect: $arg"
+  else
+    echo "Unknown effect: $arg (see: glyphsaver list-effects)" >&2
+    return 1
+  fi
+}
+
+cmd_filter() {
+  local which="$1" arg="${2:-}"
+  local key other
+  if [[ "$which" == "include" ]]; then
+    key="SCREENSAVER_INCLUDE"
+    other="SCREENSAVER_EXCLUDE"
+  else
+    key="SCREENSAVER_EXCLUDE"
+    other="SCREENSAVER_INCLUDE"
+  fi
+  if [[ -z "$arg" ]]; then
+    echo "$which: $(ss_config_get "$key" "$CONFIG_FILE")"
+    return 0
+  fi
+  if [[ "$arg" == "clear" ]]; then
+    ss_config_set "$key" "" "$CONFIG_FILE"
+    echo "$which cleared."
+    return 0
+  fi
+  local fx bad=""
+  for fx in $arg; do
+    "$INNER" --list-effects 2>/dev/null | grep -qx "$fx" || bad="$bad $fx"
+  done
+  if [[ -n "$bad" ]]; then
+    echo "Unknown effect(s):$bad (see: glyphsaver list-effects)" >&2
+    return 1
+  fi
+  ss_config_set "$key" "$arg" "$CONFIG_FILE"
+  ss_config_set "$other" "" "$CONFIG_FILE"
+  echo "$which: $arg  (the other filter was cleared — they can't combine)"
+}
+
+cmd_fps() {
+  local arg="${1:-}"
+  [[ -z "$arg" ]] && {
+    echo "fps: $(ss_config_get SCREENSAVER_FPS "$CONFIG_FILE")"
+    return 0
+  }
+  [[ "$arg" =~ ^[0-9]+$ ]] && ((arg >= 1 && arg <= 1000)) || {
+    echo "Usage: glyphsaver fps 1-1000  (e.g. glyphsaver fps 120)" >&2
+    return 1
+  }
+  ss_config_set SCREENSAVER_FPS "$arg" "$CONFIG_FILE"
+  echo "fps: $arg"
+}
+
+cmd_engine() {
+  local arg="${1:-}"
+  [[ -z "$arg" ]] && {
+    echo "engine: $(ss_config_get SCREENSAVER_ENGINE "$CONFIG_FILE")"
+    return 0
+  }
+  case "$arg" in
+  auto | ttfx | tte) ;;
+  *)
+    echo "Usage: glyphsaver engine auto|ttfx|tte" >&2
+    return 1
+    ;;
+  esac
+  if [[ "$arg" != "auto" ]] && ! command -v "$arg" &>/dev/null; then
+    echo "Warning: '$arg' is not on PATH." >&2
+  fi
+  ss_config_set SCREENSAVER_ENGINE "$arg" "$CONFIG_FILE"
+  echo "engine: $arg"
+}
+
+cmd_style() {
+  local arg="${1:-}"
+  [[ -z "$arg" ]] && {
+    echo "style: $(ss_config_get SCREENSAVER_FONT "$CONFIG_FILE")"
+    return 0
+  }
+  case "$arg" in
+  standard | small | mini | plain) ss_config_set SCREENSAVER_FONT "$arg" "$CONFIG_FILE" ;;
+  auto) ss_config_set SCREENSAVER_FONT "" "$CONFIG_FILE" ;;
+  *)
+    echo "Usage: glyphsaver style standard|small|mini|plain|auto" >&2
+    return 1
+    ;;
+  esac
+  echo "style: ${arg:-auto-fit}"
+}
+
+cmd_show() {
+  local mode effect
+  mode="$(ss_config_get SCREENSAVER_MODE "$CONFIG_FILE")"
+  effect="$(ss_config_get SCREENSAVER_EFFECT "$CONFIG_FILE")"
+  echo "art:    $(resolve_art)"
+  echo "style:  $(ss_config_get SCREENSAVER_FONT "$CONFIG_FILE")"
+  echo "engine: $(ss_config_get SCREENSAVER_ENGINE "$CONFIG_FILE")"
+  echo "mode:   ${mode:-random}"
+  if [[ "${mode:-random}" == "single" ]]; then
+    echo "effect: $effect"
+  fi
+  echo "include: $(ss_config_get SCREENSAVER_INCLUDE "$CONFIG_FILE")"
+  echo "exclude: $(ss_config_get SCREENSAVER_EXCLUDE "$CONFIG_FILE")"
+  echo "fps:    $(ss_config_get SCREENSAVER_FPS "$CONFIG_FILE")"
+  cmd_time
+  if [[ -f "$OFF_FILE" ]]; then
+    echo "idle:   OFF (toggle on to re-enable)"
+  else
+    echo "idle:   ON"
+  fi
+}
+
+detect_terminal() {
+  local id=""
+  if command -v xdg-terminal-exec &>/dev/null; then
+    id=$(xdg-terminal-exec --print-id 2>/dev/null || true)
+  fi
+  [[ -z "$id" ]] && id="${TERMINAL:-}"
+  if [[ -z "$id" ]]; then
+    for t in alacritty ghostty kitty foot; do
+      if command -v "$t" &>/dev/null; then
+        id="$t"
+        break
+      fi
+    done
+  fi
+  echo "$id"
+}
+
+launch() {
+  # Already running?
+  if is_running; then
+    echo "Screensaver already running."
+    return 0
+  fi
+
+  # No Hyprland: run inline.
+  if ! command -v hyprctl &>/dev/null; then
+    exec "$INNER" "${PASSTHROUGH[@]}"
+  fi
+
+  local terminal terminal_fallback=""
+  terminal=$(detect_terminal)
+  case "$terminal" in
+  *Alacritty* | *alacritty*) terminal="alacritty" ;;
+  *ghostty* | *Ghostty*) terminal="ghostty" ;;
+  *foot*) terminal="foot" ;;
+  *kitty* | *Kitty*) terminal="kitty" ;;
+  *)
+    if [[ -n "$terminal" ]] && command -v "${terminal%% *}" &>/dev/null; then
+      # Unknown terminal (wezterm, konsole, ...): most accept `-e`.
+      # Fullscreen rules key off the window class, so they may not apply —
+      # the saver still runs, just possibly windowed.
+      echo "Note: '$terminal' has no tuned fullscreen flags; trying generic '-e'." >&2
+      echo "For guaranteed fullscreen use Alacritty, Foot, Ghostty, or Kitty." >&2
+      terminal_fallback="$terminal"
+      terminal="generic"
+    else
+      echo "Screensaver needs a terminal (found: '${terminal:-none}')." >&2
+      echo "Install one: sudo pacman -S alacritty foot kitty" >&2
+      return 1
+    fi
+    ;;
+  esac
+
+  # Forward passthrough args to the inner script (quoted safely).
+  local inner_cmd
+  printf -v inner_cmd '%q ' "$INNER" "${PASSTHROUGH[@]}"
+  inner_cmd="${inner_cmd% }"
+
+  local focused
+  focused=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty' 2>/dev/null || true)
+
+  hypr_focus_monitor() {
+    hyprctl dispatch focusmonitor "$1" >/dev/null 2>&1 || true
+  }
+
+  # Open the event stream BEFORE spawning (Omarchy race-fix).
+  local socket="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
+  local events=""
+  if [[ -S "$socket" ]]; then
+    exec {events}< <(socat -U - "UNIX-CONNECT:$socket")
+  fi
+
+  wait_for_screensaver_window() {
+    if [[ -z "${events:-}" ]]; then
+      sleep 0.4
+      return 0
+    fi
+    local line deadline=$((SECONDS + 5))
+    while ((SECONDS < deadline)) && IFS= read -r -t $((deadline - SECONDS)) -u "$events" line; do
+      [[ $line == openwindow\>\>*,glyphsaver,* ]] && return 0
+    done
+  }
+
+  for m in $(hyprctl monitors -j | jq -r '.[] | .name'); do
+    hypr_focus_monitor "$m"
+    case "$terminal" in
+    alacritty)
+      hyprctl dispatch exec -- bash -lc "alacritty --class=glyphsaver --config-file '$ASSET_DIR/terminals/alacritty-screensaver.toml' -e $inner_cmd" >/dev/null &
+      ;;
+    ghostty)
+      hyprctl dispatch exec -- bash -lc "ghostty --class=glyphsaver --config-file='$ASSET_DIR/terminals/ghostty-screensaver' --font-size=18 -e $inner_cmd" >/dev/null &
+      ;;
+    foot)
+      hyprctl dispatch exec -- bash -lc "foot --app-id=glyphsaver --config='$ASSET_DIR/terminals/foot-screensaver.ini' -e $inner_cmd" >/dev/null &
+      ;;
+    kitty)
+      hyprctl dispatch exec -- bash -lc "kitty --class=glyphsaver --override font_size=18 --override window_padding_width=0 -e $inner_cmd" >/dev/null &
+      ;;
+    generic)
+      hyprctl dispatch exec -- bash -lc "$terminal_fallback -e $inner_cmd" >/dev/null &
+      ;;
+    esac
+    wait_for_screensaver_window
+  done
+
+  [[ -n "$focused" ]] && hypr_focus_monitor "$focused"
+}
+
+# --- subcommand dispatch (collect passthrough flags first) ---
+PASSTHROUGH=()
+CMD="${1:-launch}"
+shift || true
+EXTRA=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --effect | --fps | --include | --exclude | --engine | --art)
+    PASSTHROUGH+=("$1" "$2")
+    shift 2
+    ;;
+  --random | --once)
+    PASSTHROUGH+=("$1")
+    shift
+    ;;
+  *)
+    EXTRA+=("$1")
+    shift
+    ;;
+  esac
+done
+set -- "${EXTRA[@]:-}"
+
+case "$CMD" in
+launch | force | "")
+  if [[ "$CMD" != "force" ]] && is_off; then
+    exit 0
+  fi
+  launch
+  ;;
+stop)
+  pkill -x ttfx 2>/dev/null || true
+  pkill -x tte 2>/dev/null || true
+  pkill -f 'class=glyphsaver' 2>/dev/null || true
+  pkill -f 'app-id=glyphsaver' 2>/dev/null || true
+  command -v hyprctl &>/dev/null && hyprctl keyword cursor:invisible false &>/dev/null || true
+  echo "Screensaver stopped."
+  ;;
+toggle)
+  cmd_toggle "${1:-}"
+  ;;
+status)
+  cmd_status
+  ;;
+preview)
+  cmd_preview "${1:-}"
+  ;;
+list-effects)
+  exec "$INNER" --list-effects
+  ;;
+set-text | text)
+  cmd_set_text "$*"
+  ;;
+set-image)
+  img="${1:-}"
+  [[ -f "${img:-}" ]] || {
+    echo "Usage: glyphsaver set-image LOGO.png" >&2
+    exit 1
+  }
+  command -v chafa &>/dev/null || {
+    echo "Error: 'chafa' not installed (sudo pacman -S chafa)." >&2
+    exit 1
+  }
+  tmp=$(mktemp)
+  chafa --format symbols --symbols braille --size 100x30 "$img" >"$tmp"
+  write_art "$tmp"
+  rm -f "$tmp"
+  ;;
+set-art)
+  [[ -f "${1:-}" ]] || {
+    echo "Usage: glyphsaver set-art FILE.txt" >&2
+    exit 1
+  }
+  write_art "$1"
+  ;;
+edit-art)
+  "${EDITOR:-vi}" "$(resolve_art)"
+  ;;
+reset-art)
+  write_art "$ASSET_DIR/logo.txt"
+  ;;
+time)
+  cmd_time "${1:-}"
+  ;;
+effect)
+  cmd_effect "${1:-}"
+  ;;
+include)
+  cmd_filter include "$*"
+  ;;
+exclude)
+  cmd_filter exclude "$*"
+  ;;
+fps)
+  cmd_fps "${1:-}"
+  ;;
+engine)
+  cmd_engine "${1:-}"
+  ;;
+style)
+  cmd_style "${1:-}"
+  ;;
+show | config)
+  cmd_show
+  ;;
+-h | --help | help)
+  sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+  ;;
+*)
+  echo "Unknown command: $CMD (see --help)" >&2
+  exit 1
+  ;;
+esac

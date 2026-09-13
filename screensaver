@@ -1,0 +1,196 @@
+#!/bin/bash
+# Glyphsaver effect loop: text effects over ASCII art, cycling until dismissed.
+# Ported from basecamp/omarchy `omarchy-screensaver` (quattro branch).
+# Engine: `ttfx` (Rust, preferred) or `tte` (Python) — flags are identical.
+#
+# Usage: glyphsaver-loop [options]
+#   --art FILE            art file (default: config art, omarchy branding, logo.txt)
+#   --engine ttfx|tte     engine (default: auto = ttfx, then tte)
+#   --fps N               frame rate (default: 120)
+#   --random              random effect each cycle (default)
+#   --effect NAME         single effect, repeated
+#   --include "a b"       only these effects in random mode
+#   --exclude "a b"       skip these effects in random mode
+#   --once                run one effect cycle then exit (for preview)
+#   --list-effects        print available effects and exit
+#   -h, --help
+#
+# Config file ~/.config/glyphsaver/config (env vars):
+#   SCREENSAVER_ENGINE, SCREENSAVER_FPS, SCREENSAVER_MODE (random|single),
+#   SCREENSAVER_EFFECT, SCREENSAVER_INCLUDE, SCREENSAVER_EXCLUDE, SCREENSAVER_ART
+# CLI flags override config file, which overrides builtins.
+
+set -u
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib.sh" 2>/dev/null || source /usr/share/glyphsaver/lib.sh
+CONFIG_FILE="$HOME/.config/glyphsaver/config"
+# shellcheck disable=SC1090
+[[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+
+ART="${SCREENSAVER_ART:-$(ss_resolve_art)}"
+FALLBACK_ART="$(ss_asset_dir)/logo.txt"
+ENGINE="${SCREENSAVER_ENGINE:-auto}"
+FPS="${SCREENSAVER_FPS:-120}"
+MODE="${SCREENSAVER_MODE:-random}"
+EFFECT="${SCREENSAVER_EFFECT:-matrix}"
+INCLUDE="${SCREENSAVER_INCLUDE:-}"
+EXCLUDE="${SCREENSAVER_EXCLUDE:-}"
+ONCE=0
+
+KNOWN_EFFECTS="beams binarypath blackhole bouncyballs bubbles burn colorshift crumble decrypt errorcorrect expand fireworks highlight laseretch matrix middleout orbittingvolley overflow pour print rain randomsequence rings scattered slice slide smoke spotlights spray swarm sweep synthgrid thunderstorm unstable vhstape waves wipe"
+
+list_effects() {
+  if command -v "$1" &>/dev/null; then
+    "$1" --help 2>&1 | grep -oE '\{[a-z,]+(,|$)' | tr ',' '\n' | tr -d '{' | grep -v '^$' || echo "$KNOWN_EFFECTS" | tr ' ' '\n'
+  else
+    echo "$KNOWN_EFFECTS" | tr ' ' '\n'
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --art)
+    ART="$2"
+    shift 2
+    ;;
+  --engine)
+    ENGINE="$2"
+    shift 2
+    ;;
+  --fps)
+    FPS="$2"
+    shift 2
+    ;;
+  --effect)
+    MODE="single"
+    EFFECT="$2"
+    shift 2
+    ;;
+  --random)
+    MODE="random"
+    shift
+    ;;
+  --include)
+    INCLUDE="$2"
+    shift 2
+    ;;
+  --exclude)
+    EXCLUDE="$2"
+    shift 2
+    ;;
+  --once)
+    ONCE=1
+    shift
+    ;;
+  --list-effects)
+    _e="$ENGINE"
+    [[ "$_e" == "auto" ]] && _e="$(command -v ttfx &>/dev/null && echo ttfx || echo tte)"
+    list_effects "$_e"
+    exit 0
+    ;;
+  -h | --help)
+    sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+    exit 0
+    ;;
+  *)
+    echo "Unknown arg: $1 (see --help)" >&2
+    exit 1
+    ;;
+  esac
+done
+
+[[ -f "$ART" ]] || ART="$FALLBACK_ART"
+if [[ ! -f "$ART" ]]; then
+  echo "Error: no art file found: $ART" >&2
+  exit 1
+fi
+
+if [[ "$ENGINE" == "auto" ]]; then
+  if command -v ttfx &>/dev/null; then
+    ENGINE="ttfx"
+  elif command -v tte &>/dev/null; then
+    ENGINE="tte"
+  else
+    echo "Error: neither 'ttfx' nor 'tte' found." >&2
+    echo "  yay -S python-terminaltexteffects   # tte" >&2
+    echo "  cargo install --git https://github.com/omacom-io/ttfx  # ttfx" >&2
+    exit 1
+  fi
+fi
+command -v "$ENGINE" &>/dev/null || {
+  echo "Error: engine '$ENGINE' not on PATH." >&2
+  exit 1
+}
+
+BASE_ARGS=(-i "$ART" --frame-rate "$FPS" --canvas-width 0 --canvas-height 0
+  --reuse-canvas --anchor-canvas c --anchor-text c --no-eol --no-restore-cursor)
+
+MODE_ARGS=()
+if [[ "$MODE" == "single" ]]; then
+  MODE_ARGS=("$EFFECT")
+else
+  MODE_ARGS=(--random-effect)
+  if [[ -n "$INCLUDE" ]]; then
+    # shellcheck disable=SC2206
+    MODE_ARGS+=(--include-effects $INCLUDE)
+  elif [[ -n "$EXCLUDE" ]]; then
+    # shellcheck disable=SC2206
+    MODE_ARGS+=(--exclude-effects $EXCLUDE)
+  fi
+fi
+
+is_screensaver_focused() {
+  command -v hyprctl &>/dev/null || return 0
+  hyprctl activewindow -j 2>/dev/null | jq -e '.class == "glyphsaver"' >/dev/null 2>&1
+}
+
+exit_screensaver() {
+  command -v hyprctl &>/dev/null && hyprctl keyword cursor:invisible false &>/dev/null || true
+  printf '\033[?25h'
+  pkill -x "$ENGINE" 2>/dev/null || true
+  pkill -f 'class=glyphsaver' 2>/dev/null || true
+  pkill -f 'app-id=glyphsaver' 2>/dev/null || true
+  exit 0
+}
+
+trap exit_screensaver SIGINT SIGTERM SIGHUP SIGQUIT
+
+printf '\033]11;rgb:00/00/00\007'
+printf '\033[?25l'
+command -v hyprctl &>/dev/null && hyprctl keyword cursor:invisible true &>/dev/null || true
+
+tty_dev=$(tty 2>/dev/null || true)
+
+# Terminals allocate the pty at 80x24 and resize once the compositor
+# sizes the fullscreen window. The engine measures once at startup,
+# so wait for the real size first (Omarchy workaround, kept verbatim).
+wait_for_terminal_resize() {
+  local deadline=$((SECONDS + 2))
+  while ((SECONDS < deadline)) && [[ $(stty size 2>/dev/null) == "24 80" ]]; do
+    sleep 0.02
+  done
+}
+wait_for_terminal_resize
+
+run_once() {
+  "$ENGINE" "${BASE_ARGS[@]}" "${MODE_ARGS[@]}" &
+  wait $! 2>/dev/null || true
+}
+
+if ((ONCE)); then
+  run_once
+  printf '\033[?25h'
+  exit 0
+fi
+
+while true; do
+  "$ENGINE" "${BASE_ARGS[@]}" "${MODE_ARGS[@]}" &
+  while pgrep -t "${tty_dev#/dev/}" -x "$ENGINE" >/dev/null 2>&1; do
+    # Any keypress exits. Focus loss (alt-tab / click away) exits too.
+    if read -r -n1 -t 1 || ! is_screensaver_focused; then
+      exit_screensaver
+    fi
+  done
+done
