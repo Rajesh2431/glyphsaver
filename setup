@@ -241,7 +241,8 @@ else
   echo "  1) custom text [default]"
   echo "  2) image file (PNG/SVG -> ASCII via chafa)"
   echo "  3) existing .txt art file"
-  echo "  4) keep current ($(ss_resolve_art))"
+  echo "  4) preset art ($(ss_list_arts | tr '\n' ' '))"
+  echo "  5) keep current ($(ss_resolve_art))"
   case "$(ask "Art choice" "1")" in
   2)
     ART_MODE=image
@@ -252,6 +253,10 @@ else
     ART_VAL="$(ask "Art .txt path" "")"
     ;;
   4)
+    ART_MODE=preset
+    ART_VAL="$(ask "Preset name" "torii")"
+    ;;
+  5)
     ART_MODE=keep
     ;;
   *)
@@ -329,6 +334,15 @@ file)
     echo "Art set from $ART_VAL."
   else
     echo "File not found — keeping current art."
+  fi
+  ;;
+preset)
+  _af="$(ss_art_file "${ART_VAL:-}")"
+  if [[ -f "$_af" ]]; then
+    ss_write_art "$_af"
+    echo "Art set to preset: $ART_VAL."
+  else
+    echo "Unknown preset — keeping current art. (see: glyphsaver arts)"
   fi
   ;;
 keep)

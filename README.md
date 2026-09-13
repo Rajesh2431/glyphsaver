@@ -16,9 +16,12 @@ via the Rust port [`omacom-io/ttfx`](https://github.com/omacom-io/ttfx).
 - **Two engines, auto-picked** — `ttfx` (fast Rust) preferred, `tte` (original
   Python) as fallback; override per-run or in config
 - **Auto-fit text art** — Omarchy wordmark style first (bundled Delta Corps
-  Priest 1 + matching digits), then 10 bundled FIGlet styles big-to-small,
+  Priest 1 + matching digits), then game/display faces (doom, cybermedium,
+  chunky, epic, bloody, ghost, graffiti, modular), then classic FIGlet faces,
   then plain; the chosen style is saved as default and reused for later texts
-- **11 text styles** — `gly styles` lists them (`omarchy` default); `gly style NAME` switches
+- **19 text styles** — `gly styles` lists them (`omarchy` default); `gly style NAME` switches
+- **Preset art gallery** — `gly arts` lists bundled art incl. Japanese AA
+  (`torii`, `fuji`, `wave`, `neko`); `gly art torii` sets one instantly
 - **`glyphsaver ascii`** — render words to stdout in the wordmark style
 - **Image → ASCII** — PNG/SVG converted via `chafa`; custom `.txt` art supported
 - **Per-monitor fullscreen** — one terminal per Hyprland monitor, race-free
@@ -133,6 +136,8 @@ publishing steps.
 | `glyphsaver style mini` / `auto` | default text style (`omarchy\|standard\|small\|mini\|plain\|auto`) |
 | `glyphsaver set-image logo.png` | PNG/SVG → ASCII art (needs `chafa`) |
 | `glyphsaver set-art file.txt` | use an existing text-art file |
+| `glyphsaver arts` | list bundled presets (torii, fuji, wave, neko) |
+| `glyphsaver art torii` | use a bundled preset instantly |
 | `glyphsaver edit-art` | open current art in `$EDITOR` |
 | `glyphsaver reset-art` | restore the bundled logo |
 | `glyphsaver help` | full command help in the terminal |
@@ -198,5 +203,8 @@ own config sections. Restart `hypridle` / `hyprctl reload` to apply.
 - Screensaver concept, logo, wordmark font (Delta Corps Priest 1):
   [`basecamp/omarchy`](https://github.com/basecamp/omarchy) — digits 0–9 in the
   same style were drawn for this repo (`fonts/Delta-Corps-Priest-1.flf`)
+- Game/display FIGlet fonts (doom, cybermedium, chunky, epic, bloody, ghost,
+  graffiti, modular): [`xero/figlet-fonts`](https://github.com/xero/figlet-fonts);
+  classic faces from stock FIGlet 2.2.5
 - Effects engine: [TerminalTextEffects](https://github.com/ChrisBuilds/terminaltexteffects) by ChrisBuilds; Rust port [omacom-io/ttfx](https://github.com/omacom-io/ttfx)
 - Standalone Arch port, setup/uninstall/packaging: this repo (MIT, see `LICENSE`)

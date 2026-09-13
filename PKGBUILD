@@ -10,7 +10,7 @@
 #   4. Submit with `makepkg --printsrcinfo > .SRCINFO` + `git push aur`.
 pkgname=glyphsaver
 pkgver=1.0.0
-pkgrel=6
+pkgrel=7
 pkgdesc="Fullscreen ASCII screensaver with TTE/ttfx text effects (Hyprland, Omarchy-inspired)"
 arch=('any')
 url="https://github.com/Rajesh2431/glyphsaver"
@@ -28,7 +28,7 @@ optdepends=(
   'kitty: supported fullscreen terminal'
 )
 source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('59767ff1a533769abc78b0500e0487887aa0c9eb5077515156c0c5be964f302c')
+sha256sums=('3e96dc9cd8dfcc5b34c278f2da3d218d4e2a44b2c7b5dfc28a155865c9a90d42')
 
 package() {
   cd "$srcdir"
@@ -46,6 +46,9 @@ package() {
   install -Dm755 ascii "$share/ascii"
   for _f in "$srcdir"/fonts/*.flf; do
     install -Dm644 "$_f" "$share/fonts/$(basename "$_f")"
+  done
+  for _a in "$srcdir"/art/*.txt; do
+    install -Dm644 "$_a" "$share/art/$(basename "$_a")"
   done
   install -Dm644 terminals/alacritty-screensaver.toml "$share/terminals/alacritty-screensaver.toml"
   install -Dm644 terminals/foot-screensaver.ini "$share/terminals/foot-screensaver.ini"

@@ -25,6 +25,8 @@
 #   style NAME | auto       default text style (see: glyphsaver styles)
 #   set-image IMG           convert PNG/SVG to ASCII art (needs chafa)
 #   set-art FILE            use an existing .txt art file
+#   arts                    list bundled presets (incl. Japanese AA)
+#   art NAME                use a bundled preset, e.g. glyphsaver art torii
 #   edit-art                open current art in $EDITOR
 #   reset-art               restore bundled logo
 #   help                    this help
@@ -530,10 +532,28 @@ set-image)
   ;;
 set-art)
   [[ -f "${1:-}" ]] || {
-    echo "Usage: glyphsaver set-art FILE.txt" >&2
+    echo "Usage: glyphsaver set-art FILE.txt  (or: glyphsaver art NAME)" >&2
     exit 1
   }
   write_art "$1"
+  ;;
+arts)
+  # List bundled preset art (incl. Japanese AA).
+  ss_list_arts
+  ;;
+art)
+  # Use a bundled preset: glyphsaver art torii
+  [[ -n "${1:-}" ]] || {
+    echo "Usage: glyphsaver art NAME  (see: glyphsaver arts)" >&2
+    exit 1
+  }
+  _af="$(ss_art_file "$1")"
+  [[ -f "$_af" ]] || {
+    echo "Unknown preset: $1  (see: glyphsaver arts)" >&2
+    exit 1
+  }
+  write_art "$_af"
+  echo "Art: $1"
   ;;
 edit-art)
   "${EDITOR:-vi}" "$(resolve_art)"

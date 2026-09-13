@@ -130,9 +130,9 @@ ss_ascii_bin() {
 }
 
 # Styles, roughly biggest first. `omarchy` (the default) is the bundled
-# Omarchy wordmark font; the rest are bundled FIGlet fonts. All render
-# through the built-in `ascii` renderer — no `figlet` binary needed.
-SS_STYLES="omarchy big block standard slant shadow digital bubble script small mini"
+# Omarchy wordmark font, followed by game/display fonts, then classic
+# FIGlet faces. All render through the built-in `ascii` renderer.
+SS_STYLES="omarchy doom chunky epic cybermedium bloody ghost graffiti modular big block standard slant shadow digital bubble script small mini"
 
 ss_font_dir() {
   local here
@@ -184,6 +184,21 @@ ss_render_style() {
   [[ -n "$wid" ]] && ((wid <= max_cols)) || return 1
   echo "$style (width ${wid}/${max_cols} cols)"
   return 0
+}
+
+# Preset art collection (incl. Japanese AA). Lists names without .txt.
+ss_list_arts() {
+  local d f
+  d="$(ss_asset_dir)/art"
+  [[ -d "$d" ]] || return 0
+  for f in "$d"/*.txt; do
+    [[ -f "$f" ]] || continue
+    basename "$f" .txt
+  done
+}
+
+ss_art_file() {
+  echo "$(ss_asset_dir)/art/$1.txt"
 }
 
 # Map an ss_render_* "Style: ..." line to a storable style key.
