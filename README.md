@@ -51,7 +51,7 @@ via the Rust port [`omacom-io/ttfx`](https://github.com/omacom-io/ttfx).
 ### Option A — interactive setup (recommended)
 
 ```bash
-git clone <this-repo> && cd glyphsaver   # or just cd into this folder
+git clone git@github.com:Rajesh2431/glyphsaver.git && cd glyphsaver
 ./install.sh
 ```
 
