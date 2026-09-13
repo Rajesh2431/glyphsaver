@@ -308,7 +308,7 @@ text)
     fi
     keep="$(ask "Keep this as your screensaver art? (Y/n)" "Y")"
     if [[ "$keep" =~ ^[Yy] ]]; then
-      ss_write_art "$tmp"
+      ss_write_art "$tmp" 1
       echo "Art set to \"$ART_VAL\" ($style)."
       # Persist the chosen font as the default style: later text changes
       # reuse it via `glyphsaver set-text`.

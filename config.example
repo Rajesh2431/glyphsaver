@@ -12,3 +12,6 @@
 # `omarchy` is the bundled Omarchy wordmark style (letters + digits).
 # Changing text later with `glyphsaver set-text "..."` reuses it.
 # SCREENSAVER_FONT=""
+# Art scaling: "" = auto-fill screen width (default), "1"/"off" = original
+# size, "2"-"8" = fixed scale. Short text goes huge, long text stays readable.
+# SCREENSAVER_SCALE=""

@@ -23,6 +23,7 @@
 #   fps N                   frame rate 1-1000 (default 120)
 #   engine auto|ttfx|tte    effects engine
 #   style NAME | auto       default text style (see: glyphsaver styles)
+#   size auto|1-8          art scaling: auto-fill screen (default), 1 = original
 #   set-image IMG           convert PNG/SVG to ASCII art (needs chafa)
 #   set-art FILE            use an existing .txt art file
 #   arts                    list bundled presets (heroes, cars, funny, Japanese)
@@ -63,7 +64,7 @@ resolve_art() {
 }
 
 write_art() {
-  ss_write_art "$1"
+  ss_write_art "$@"
   echo "Art updated."
 }
 
@@ -140,7 +141,7 @@ cmd_set_text() {
   # but never changes the default.
   _stored="$(ss_config_get SCREENSAVER_FONT "$CONFIG_FILE")"
   style=$(ss_render_text "$text" "$tmp" "$_stored")
-  write_art "$tmp"
+  write_art "$tmp" 1
   echo "Style: $style"
   if [[ -z "$_stored" ]]; then
     _font="$(ss_style_name "$style")"
@@ -279,6 +280,26 @@ cmd_style() {
   echo "style: ${arg:-auto-fit}"
 }
 
+cmd_size() {
+  # View or set art scaling: auto (fill screen, default) | 1 (off) | 2-8.
+  local arg="${1:-}"
+  if [[ -z "$arg" ]]; then
+    echo "size: $(ss_config_get SCREENSAVER_SCALE "$CONFIG_FILE")"
+    echo "(blank = auto-fill screen; 1 = original size; N = fixed scale)"
+    return 0
+  fi
+  if [[ "$arg" == "auto" ]]; then
+    ss_config_set SCREENSAVER_SCALE "" "$CONFIG_FILE"
+  elif [[ "$arg" =~ ^[1-8]$ ]]; then
+    ss_config_set SCREENSAVER_SCALE "$arg" "$CONFIG_FILE"
+  else
+    echo "Usage: glyphsaver size auto|1-8" >&2
+    return 1
+  fi
+  echo "size: ${arg:-auto-fill}"
+  echo "Re-render current text to apply: glyphsaver text \"...\" (or re-set art)."
+}
+
 cmd_styles() {
   local cur
   cur="$(ss_config_get SCREENSAVER_FONT "$CONFIG_FILE")"
@@ -306,6 +327,7 @@ cmd_show() {
   echo "include: $(ss_config_get SCREENSAVER_INCLUDE "$CONFIG_FILE")"
   echo "exclude: $(ss_config_get SCREENSAVER_EXCLUDE "$CONFIG_FILE")"
   echo "fps:    $(ss_config_get SCREENSAVER_FPS "$CONFIG_FILE")"
+  echo "size:   $(ss_config_get SCREENSAVER_SCALE "$CONFIG_FILE")"
   cmd_time
   if [[ -f "$OFF_FILE" ]]; then
     echo "idle:   OFF (toggle on to re-enable)"
@@ -601,6 +623,9 @@ engine)
   ;;
 style)
   cmd_style "${1:-}"
+  ;;
+size)
+  cmd_size "${1:-}"
   ;;
 styles)
   cmd_styles

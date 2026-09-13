@@ -75,11 +75,18 @@ if [[ -z ${text//[[:space:]]/} ]]; then
 fi
 
 [[ -f "$FONT_FILE" ]] || {
-  echo "Font not found: $FONT_FILE" >&2
+  echo "Font not found: $FONT_FILE (see: glyphsaver styles)" >&2
   exit 1
 }
 
-printf '%s' "$text" | awk -v FONT_FILE="$FONT_FILE" '
+# Only the Omarchy wordmark font is kerned (slid tight, like the logo);
+# stock FIGlet faces use full-width layout like real figlet.
+case "$FONT_NAME" in
+Delta-Corps-Priest-1) KERN=1 ;;
+*) KERN=0 ;;
+esac
+
+printf '%s' "$text" | awk -v FONT_FILE="$FONT_FILE" -v KERN="$KERN" '
 function rtrim(s) {
   sub(/ +$/, "", s)
   return s
@@ -189,6 +196,18 @@ function draw(source,   chars, total, i, r, ch, code, piece, glyph_width, out, t
     }
 
     amount = -1
+    if (!KERN) {
+      # Full-width layout (like figlet default): glyphs sit side by side,
+      # only separated from the previous art by one column when needed.
+      for (r = 0; r < height; r++) {
+        if (drew && substr(out[r], length(out[r])) != " ") {
+          out[r] = out[r] " "
+        }
+        out[r] = out[r] piece[r]
+      }
+      drew = 1
+      continue
+    }
     for (r = 0; r < height; r++) {
       lead = glyph_width - length(ltrim(piece[r]))
       if (amount < 0 || trail[r] + lead < amount) {

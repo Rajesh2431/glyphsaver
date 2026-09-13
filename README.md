@@ -136,7 +136,9 @@ publishing steps.
 | `glyphsaver exclude "burn"` / `clear` | random block-list (clears include) |
 | `glyphsaver fps 120` | frame rate 1–1000 |
 | `glyphsaver engine auto\|ttfx\|tte` | effects engine |
-| `glyphsaver style mini` / `auto` | default text style (`omarchy\|standard\|small\|mini\|plain\|auto`) |
+| `glyphsaver style mini` / `auto` | default text style (see: `gly styles`) |
+| `glyphsaver size` | show scaling (auto-fill, 1 = original, N = fixed) |
+| `glyphsaver size 2` | force scale x2 (auto = fill screen from text length) |
 | `glyphsaver set-image logo.png` | PNG/SVG → ASCII art (needs `chafa`) |
 | `glyphsaver set-art file.txt` | use an existing text-art file |
 | `glyphsaver arts` | list bundled presets (heroes, car, funny, Japanese) |
@@ -160,10 +162,18 @@ glyphsaver-loop --list-effects
 
 ### Style persistence
 
-`SCREENSAVER_FONT` in `~/.config/glyphsaver/config`
-(`standard`|`small`|`mini`|`plain`, empty = auto-fit). Saved automatically by
-setup/`set-text`. Changing text later reuses it; overlong text cascades
-smaller for that render only, without changing the default.
+`SCREENSAVER_FONT` in `~/.config/glyphsaver/config` (`omarchy` default, see
+`gly styles`; empty = auto-pick). Saved automatically by setup/`text`.
+Changing text later reuses it; overlong text cascades smaller for that
+render only, without changing the default.
+
+### Auto sizing
+
+Art is scaled to fill the screen with a ~1-letter margin each side —
+short text renders huge, long text stays readable. `SCREENSAVER_SCALE`
+controls it: blank (auto, default), `1`/`off` (original size), `2`–`8`
+fixed. `gly size [auto|1-8]` views/changes it (re-render text or re-set
+art afterwards to apply).
 
 ### Config file reference (`~/.config/glyphsaver/config`)
 
@@ -176,6 +186,7 @@ SCREENSAVER_INCLUDE=""       # random pool allow-list, e.g. "matrix rain"
 SCREENSAVER_EXCLUDE=""       # random pool block-list
 SCREENSAVER_ART=""           # art file (empty = Omarchy branding path, then bundled logo)
 SCREENSAVER_FONT="omarchy"  # default text style: omarchy|big|block|standard|slant|shadow|digital|bubble|script|small|mini|plain (see: gly styles)
+SCREENSAVER_SCALE=""        # auto-fill screen (blank), 1/off = original, 2-8 = fixed
 ```
 
 CLI flags override the file. Full defaults in `config.example`.
