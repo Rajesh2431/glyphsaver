@@ -16,8 +16,9 @@ via the Rust port [`omacom-io/ttfx`](https://github.com/omacom-io/ttfx).
 - **Two engines, auto-picked** — `ttfx` (fast Rust) preferred, `tte` (original
   Python) as fallback; override per-run or in config
 - **Auto-fit text art** — Omarchy wordmark style first (bundled Delta Corps
-  Priest 1 + matching digits, no extra deps), then biggest fitting figlet font,
+  Priest 1 + matching digits), then 10 bundled FIGlet styles big-to-small,
   then plain; the chosen style is saved as default and reused for later texts
+- **11 text styles** — `gly styles` lists them (`omarchy` default); `gly style NAME` switches
 - **`glyphsaver ascii`** — render words to stdout in the wordmark style
 - **Image → ASCII** — PNG/SVG converted via `chafa`; custom `.txt` art supported
 - **Per-monitor fullscreen** — one terminal per Hyprland monitor, race-free
@@ -39,7 +40,6 @@ via the Rust port [`omacom-io/ttfx`](https://github.com/omacom-io/ttfx).
 | `hypridle` | 0.1.8 | `sudo pacman -S hypridle` | auto-start on idle |
 | `jq` | 1.8.2 | `sudo pacman -S jq` | monitor detection, focus checks |
 | `socat` | 1.8.1 | `sudo pacman -S socat` | Hyprland event socket |
-| `figlet` | 2.2.5 (extra) | `sudo pacman -S figlet` | big-letter text (else plain fallback) |
 | `chafa` | 1.18.2 | `sudo pacman -S chafa` | image → ASCII (`set-image`) |
 | `alacritty` / `foot` / `ghostty` / `kitty` | any | `sudo pacman -S alacritty foot kitty` | fullscreen host (others work via generic `-e`, may be windowed) |
 
@@ -63,9 +63,10 @@ You are guided through 5 steps:
    `4` 480s (before a 10-min lock) · `5` custom · `6` skip.
    Writes a managed `listener` into `~/.config/hypr/hypridle.conf`
    (`.bak` backup, placed before your lock listener).
-4. **Text/art** — type text (default: your username); it renders in the
-   Omarchy wordmark style at full logo size, shows you the result, offers a
-   live effect preview, then asks to keep it as default (style saved).
+4. **Text/art** — type text (default: your username), then pick a style
+   from the numbered menu (`omarchy` wordmark style is default); it renders,
+   shows the result, offers a live effect preview, then asks to keep it
+   (style saved as default).
 5. **Hyprland rules** — see compatibility table below.
 
 Non-interactive equivalent:
@@ -165,7 +166,7 @@ SCREENSAVER_EFFECT="matrix"  # used when MODE=single
 SCREENSAVER_INCLUDE=""       # random pool allow-list, e.g. "matrix rain"
 SCREENSAVER_EXCLUDE=""       # random pool block-list
 SCREENSAVER_ART=""           # art file (empty = Omarchy branding path, then bundled logo)
-SCREENSAVER_FONT="standard"  # default text style (see above)
+SCREENSAVER_FONT="omarchy"  # default text style: omarchy|big|block|standard|slant|shadow|digital|bubble|script|small|mini|plain (see: gly styles)
 ```
 
 CLI flags override the file. Full defaults in `config.example`.
@@ -186,7 +187,7 @@ own config sections. Restart `hypridle` / `hyprctl reload` to apply.
 | Symptom | Fix |
 |---|---|
 | `neither 'ttfx' nor 'tte' found` | install an engine (see Requirements) |
-| Plain small text instead of big letters | `sudo pacman -S figlet`, re-run setup or `set-text` |
+| Tiny plain text instead of styled art | pick a fitting style: `gly styles`, then `gly style NAME` + `gly text` |
 | Saver stays windowed | use Alacritty/Foot/Ghostty/Kitty; `hyprctl reload`; check class `glyphsaver` in `hyprctl clients` |
 | Idle never fires | restart hypridle; check timeout < lock timeout; `toggle status` says ON |
 | Lua errors after setup | restore `*.bak`, report Hyprland version (`hyprctl version`) |

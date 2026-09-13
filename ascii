@@ -11,18 +11,21 @@
 set -u
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
-if [[ -f "$SCRIPT_DIR/fonts/Delta-Corps-Priest-1.flf" ]]; then
-  FONT_FILE="$SCRIPT_DIR/fonts/Delta-Corps-Priest-1.flf"
+if [[ -d "$SCRIPT_DIR/fonts" ]]; then
+  FONT_DIR="$SCRIPT_DIR/fonts"
 else
-  FONT_FILE="/usr/share/glyphsaver/fonts/Delta-Corps-Priest-1.flf"
+  FONT_DIR="/usr/share/glyphsaver/fonts"
 fi
+FONT_NAME="Delta-Corps-Priest-1"
+FONT_FILE="$FONT_DIR/$FONT_NAME.flf"
 
 usage() {
   cat <<'EOF'
-Usage: ascii [text...]
+Usage: ascii [--font NAME] [text...]
 
-Renders text as ASCII art in the Omarchy wordmark style (Delta Corps
-Priest 1 + matching digits). Reads from stdin when given none.
+Renders text as ASCII art (default style: the Omarchy wordmark font).
+Reads from stdin when given no text. --font picks a bundled style
+(see all: ls <fonts-dir>, e.g. --font slant).
 Letters, digits and spaces render; other characters are skipped.
 EOF
 }
@@ -34,6 +37,12 @@ while (($# > 0)); do
     usage
     exit 0
     ;;
+  --font)
+    FONT_NAME="${2:-}"
+    FONT_NAME="${FONT_NAME%.flf}"
+    FONT_FILE="$FONT_DIR/$FONT_NAME.flf"
+    shift
+    ;; # outer shift below consumes the flag itself
   --)
     shift
     words+=("$@")

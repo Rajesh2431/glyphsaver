@@ -129,37 +129,71 @@ ss_ascii_bin() {
   fi
 }
 
-# Render TEXT with the bundled Omarchy-style font (letters + digits).
-# Prints "omarchy (width W/C cols)" and returns 0 when it fits the screen.
-ss_render_omarchy() {
-  local text="$1" outfile="$2" max_cols="$3"
-  local asc wid
-  asc="$(ss_ascii_bin)"
-  [[ -x "$asc" ]] || return 1
-  "$asc" "$text" >"$outfile" 2>/dev/null || return 1
-  wid=$(awk '{ print length }' "$outfile" | sort -n | tail -1)
-  [[ -n "$wid" ]] && ((wid <= max_cols)) || return 1
-  echo "omarchy (width ${wid}/${max_cols} cols)"
-  return 0
-}
-# Map an ss_render_* "Style: ..." line to a storable font key.
-ss_style_name() {
-  local style="$1" font
-  if [[ "$style" == omarchy* ]]; then
-    echo "omarchy"
-  elif [[ "$style" == figlet/* ]]; then
-    font="${style#figlet/}"
-    echo "${font%% *}"
+# Styles, roughly biggest first. `omarchy` (the default) is the bundled
+# Omarchy wordmark font; the rest are bundled FIGlet fonts. All render
+# through the built-in `ascii` renderer — no `figlet` binary needed.
+SS_STYLES="omarchy big block standard slant shadow digital bubble script small mini"
+
+ss_font_dir() {
+  local here
+  here="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
+  if [[ -d "$here/fonts" ]]; then
+    echo "$here/fonts"
   else
-    echo "plain"
+    echo "/usr/share/glyphsaver/fonts"
   fi
 }
 
+ss_style_font() {
+  # Map a style name to its .flf basename.
+  if [[ "$1" == "omarchy" ]]; then
+    echo "Delta-Corps-Priest-1"
+  else
+    echo "$1"
+  fi
+}
+
+ss_valid_style() {
+  [[ "$1" == "plain" ]] && return 0
+  local f
+  for f in $SS_STYLES; do
+    [[ "$f" == "$1" ]] && return 0
+  done
+  return 1
+}
+
+ss_list_styles() {
+  local f
+  for f in $SS_STYLES; do
+    [[ -f "$(ss_font_dir)/$(ss_style_font "$f").flf" ]] && echo "$f"
+  done
+  echo "plain"
+}
+
+# Render TEXT with one bundled style.
+# Prints "<style> (width W/C cols)" and returns 0 when it fits the screen.
+ss_render_style() {
+  local text="$1" outfile="$2" style="$3" max_cols="$4"
+  local asc wid flf
+  asc="$(ss_ascii_bin)"
+  [[ -x "$asc" ]] || return 1
+  flf="$(ss_style_font "$style")"
+  [[ -f "$(ss_font_dir)/$flf.flf" ]] || return 1
+  "$asc" --font "$flf" "$text" >"$outfile" 2>/dev/null || return 1
+  wid=$(awk '{ print length }' "$outfile" | sort -n | tail -1)
+  [[ -n "$wid" ]] && ((wid <= max_cols)) || return 1
+  echo "$style (width ${wid}/${max_cols} cols)"
+  return 0
+}
+
+# Map an ss_render_* "Style: ..." line to a storable style key.
+ss_style_name() {
+  echo "${1%% *}"
+}
+
 # Render TEXT into OUTFILE, printing the chosen style name on stdout.
-# Order: Omarchy wordmark style first (when preferred is empty or omarchy),
-# then the biggest fitting figlet font, then plain centered text.
-# A preferred font that no longer fits cascades down, so longer replacement
-# text still displays instead of clipping.
+# Tries the preferred style first, then the rest big-to-small, then plain.
+# A preferred style that no longer fits cascades down instead of clipping.
 ss_render_text() {
   local text="$1" outfile="$2" preferred="${3:-}"
   local max_cols
@@ -167,50 +201,23 @@ ss_render_text() {
   local tmp
   tmp=$(mktemp)
 
-  # Omarchy wordmark style (bundled font, letters + digits, no extra deps).
-  if [[ -z "$preferred" || "$preferred" == "omarchy" ]]; then
-    local style
-    if style=$(ss_render_omarchy "$text" "$tmp" "$max_cols"); then
+  local try="$SS_STYLES" f rest=""
+  if [[ -n "$preferred" && "$preferred" != "plain" ]] && ss_valid_style "$preferred"; then
+    for f in $SS_STYLES; do
+      [[ "$f" == "$preferred" ]] || rest="$rest $f"
+    done
+    try="$preferred$rest"
+  fi
+
+  local style
+  for f in $try; do
+    if style=$(ss_render_style "$text" "$tmp" "$f" "$max_cols"); then
       cp "$tmp" "$outfile"
       echo "$style"
       rm -f "$tmp"
       return 0
     fi
-    # Too wide or nothing drawable: fall through to smaller styles.
-    [[ "$preferred" == "omarchy" ]] && preferred=""
-  fi
-
-  if command -v figlet &>/dev/null; then
-    local all_fonts="standard small mini" fonts="" f start=0
-    if [[ -n "$preferred" && "$preferred" != "plain" ]]; then
-      for f in $all_fonts; do
-        if [[ "$f" == "$preferred" ]]; then
-          start=1
-        fi
-        if ((start)); then
-          fonts="$fonts $f"
-        fi
-      done
-      [[ -z "${fonts// /}" ]] && fonts="$all_fonts"
-    else
-      fonts="$all_fonts"
-    fi
-    local font
-    for font in $fonts; do
-      figlet -f "$font" -w "$max_cols" "$text" 2>/dev/null | sed -e 's/[[:space:]]*$//' >"$tmp"
-      local wid
-      wid=$(awk '{ print length }' "$tmp" | sort -n | tail -1)
-      if [[ -z "$wid" ]]; then
-        continue
-      fi
-      if ((wid <= max_cols)); then
-        cp "$tmp" "$outfile"
-        rm -f "$tmp"
-        echo "figlet/$font (width ${wid}/${max_cols} cols)"
-        return 0
-      fi
-    done
-  fi
+  done
 
   # Plain fallback: center, truncate to screen width.
   {
@@ -221,5 +228,5 @@ ss_render_text() {
     done <<<"$text"
   } >"$outfile"
   rm -f "$tmp"
-  echo "plain (figlet missing or text too wide for ${max_cols} cols)"
+  echo "plain (text too wide for ${max_cols} cols)"
 }

@@ -10,7 +10,7 @@
 #   4. Submit with `makepkg --printsrcinfo > .SRCINFO` + `git push aur`.
 pkgname=glyphsaver
 pkgver=1.0.0
-pkgrel=5
+pkgrel=6
 pkgdesc="Fullscreen ASCII screensaver with TTE/ttfx text effects (Hyprland, Omarchy-inspired)"
 arch=('any')
 url="https://github.com/Rajesh2431/glyphsaver"
@@ -21,7 +21,6 @@ optdepends=(
   'python-terminaltexteffects: original Python effects engine (tte)'
   'hyprland: per-monitor fullscreen launcher + window rules'
   'hypridle: automatic start on idle (wired up by glyphsaver-setup)'
-  'figlet: big-text art rendering with auto-fit'
   'chafa: PNG/SVG to ASCII art conversion'
   'alacritty: supported fullscreen terminal'
   'foot: supported fullscreen terminal'
@@ -29,7 +28,7 @@ optdepends=(
   'kitty: supported fullscreen terminal'
 )
 source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('92f7d784da11aa186b22e25d75a94ce882a9d941fd0af4b0d72021f991c870b4')
+sha256sums=('59767ff1a533769abc78b0500e0487887aa0c9eb5077515156c0c5be964f302c')
 
 package() {
   cd "$srcdir"
@@ -45,7 +44,9 @@ package() {
   install -Dm644 logo.txt "$share/logo.txt"
   install -Dm644 config.example "$share/config.example"
   install -Dm755 ascii "$share/ascii"
-  install -Dm644 fonts/Delta-Corps-Priest-1.flf "$share/fonts/Delta-Corps-Priest-1.flf"
+  for _f in "$srcdir"/fonts/*.flf; do
+    install -Dm644 "$_f" "$share/fonts/$(basename "$_f")"
+  done
   install -Dm644 terminals/alacritty-screensaver.toml "$share/terminals/alacritty-screensaver.toml"
   install -Dm644 terminals/foot-screensaver.ini "$share/terminals/foot-screensaver.ini"
   install -Dm644 terminals/ghostty-screensaver "$share/terminals/ghostty-screensaver"

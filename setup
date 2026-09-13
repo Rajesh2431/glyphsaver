@@ -44,6 +44,7 @@ OPT_IDLE=""
 OPT_TEXT=""
 OPT_IMAGE=""
 OPT_ART=""
+OPT_STYLE=""
 OPT_ENGINE=""
 
 while [[ $# -gt 0 ]]; do
@@ -51,11 +52,12 @@ while [[ $# -gt 0 ]]; do
   --yes) YES=1; shift ;;
   --idle) OPT_IDLE="$2"; shift 2 ;;
   --text) OPT_TEXT="$2"; shift 2 ;;
+  --style) OPT_STYLE="$2"; shift 2 ;;
   --image) OPT_IMAGE="$2"; shift 2 ;;
   --art) OPT_ART="$2"; shift 2 ;;
   --engine) OPT_ENGINE="$2"; shift 2 ;;
   -h | --help)
-    echo "Usage: setup [--yes] [--idle SEC] [--text ...] [--image IMG] [--art FILE] [--engine auto|ttfx|tte]"
+    echo "Usage: setup [--yes] [--idle SEC] [--text ...] [--style NAME] [--image IMG] [--art FILE] [--engine auto|ttfx|tte]"
     exit 0
     ;;
   *)
@@ -102,7 +104,7 @@ command -v ttfx &>/dev/null && have_ttfx=1
 command -v tte &>/dev/null && have_tte=1
 echo "engine: ttfx=$have_ttfx tte=$have_tte"
 need_pacman=()
-for dep in jq socat chafa figlet; do
+for dep in jq socat chafa; do
   if command -v "$dep" &>/dev/null; then
     echo "  $dep: OK"
   else
@@ -125,7 +127,7 @@ if ((${#need_pacman[@]})); then
       echo "  sudo pacman -S --needed ${need_pacman[*]}"
     fi
   else
-    echo "Skipped (plain-text art without figlet; no image import without chafa)."
+    echo "Skipped (no image import without chafa)."
   fi
 fi
 if ((have_ttfx == 0 && have_tte == 0)); then
@@ -224,6 +226,7 @@ echo "=== 4/5 screensaver art ==="
 echo "Screen fits ~$(ss_max_cols) text columns fullscreen."
 ART_MODE=""
 ART_VAL=""
+ART_STYLE="${OPT_STYLE:-}"
 if [[ -n "$OPT_TEXT" ]]; then
   ART_MODE=text
   ART_VAL="$OPT_TEXT"
@@ -258,13 +261,34 @@ else
   esac
 fi
 
+# Style picker for text art. `omarchy` (the wordmark style) is default;
+# the choice is only a starting point — overlong text cascades smaller.
+if [[ "$ART_MODE" == "text" && -n "$ART_VAL" && -z "$ART_STYLE" ]]; then
+  echo "Text style (default: omarchy):"
+  _i=0
+  for _s in $(ss_list_styles); do
+    _i=$((_i + 1))
+    echo "  $_i) $_s"
+    eval "_style_$_i=\$_s"
+  done
+  _pick="$(ask "Style number or name" "1")"
+  if [[ "$_pick" =~ ^[0-9]+$ ]] && (( _pick >= 1 && _pick <= _i )); then
+    eval "ART_STYLE=\$_style_$_pick"
+  elif ss_valid_style "$_pick"; then
+    ART_STYLE="$_pick"
+  else
+    ART_STYLE="omarchy"
+  fi
+  echo "Style: $ART_STYLE"
+fi
+
 case "$ART_MODE" in
 text)
   if [[ -z "$ART_VAL" ]]; then
     echo "Empty text, keeping current art."
   else
     tmp=$(mktemp)
-    style=$(ss_render_text "$ART_VAL" "$tmp")
+    style=$(ss_render_text "$ART_VAL" "$tmp" "$ART_STYLE")
     echo "Rendered \"$ART_VAL\" ($style):"
     head -9 "$tmp"
     # Preview the new art through one real effect cycle before saving.
