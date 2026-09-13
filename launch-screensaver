@@ -359,7 +359,20 @@ launch() {
   focused=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty' 2>/dev/null || true)
 
   hypr_focus_monitor() {
-    hyprctl dispatch focusmonitor "$1" >/dev/null 2>&1 || true
+    # Lua-first (Hyprland >= 0.55 evaluates dispatch as Lua), plain fallback.
+    hyprctl dispatch "hl.dsp.focus({ monitor = \"$1\" })" >/dev/null 2>&1 ||
+      hyprctl dispatch focusmonitor "$1" >/dev/null 2>&1 || true
+  }
+
+  hypr_exec() {
+    local command="$1"
+    hyprctl dispatch "hl.dsp.exec_cmd([[$command]])" >/dev/null 2>&1 ||
+      hyprctl dispatch exec -- bash -lc "$command" >/dev/null 2>&1 || true
+  }
+
+  focus_screensaver() {
+    hyprctl dispatch "hl.dsp.focus({ window = 'class:glyphsaver' })" >/dev/null 2>&1 ||
+      hyprctl dispatch focuswindow class:glyphsaver >/dev/null 2>&1 || true
   }
 
   # Open the event stream BEFORE spawning (Omarchy race-fix).
@@ -384,25 +397,40 @@ launch() {
     hypr_focus_monitor "$m"
     case "$terminal" in
     alacritty)
-      hyprctl dispatch exec -- bash -lc "alacritty --class=glyphsaver --config-file '$ASSET_DIR/terminals/alacritty-screensaver.toml' -e $inner_cmd" >/dev/null &
+      hypr_exec "alacritty --class=glyphsaver --config-file '$ASSET_DIR/terminals/alacritty-screensaver.toml' -e $inner_cmd"
       ;;
     ghostty)
-      hyprctl dispatch exec -- bash -lc "ghostty --class=glyphsaver --config-file='$ASSET_DIR/terminals/ghostty-screensaver' --font-size=18 -e $inner_cmd" >/dev/null &
+      hypr_exec "ghostty --class=glyphsaver --config-file='$ASSET_DIR/terminals/ghostty-screensaver' --font-size=18 -e $inner_cmd"
       ;;
     foot)
-      hyprctl dispatch exec -- bash -lc "foot --app-id=glyphsaver --config='$ASSET_DIR/terminals/foot-screensaver.ini' -e $inner_cmd" >/dev/null &
+      hypr_exec "foot --app-id=glyphsaver --config='$ASSET_DIR/terminals/foot-screensaver.ini' -e $inner_cmd"
       ;;
     kitty)
-      hyprctl dispatch exec -- bash -lc "kitty --class=glyphsaver --override font_size=18 --override window_padding_width=0 -e $inner_cmd" >/dev/null &
+      hypr_exec "kitty --class=glyphsaver --override font_size=18 --override window_padding_width=0 -e $inner_cmd"
       ;;
     generic)
-      hyprctl dispatch exec -- bash -lc "$terminal_fallback -e $inner_cmd" >/dev/null &
+      hypr_exec "$terminal_fallback -e $inner_cmd"
       ;;
     esac
     wait_for_screensaver_window
+    # New windows don't always take focus on their own (setup-dependent);
+    # without focus the loop below would exit immediately.
+    focus_screensaver
   done
 
-  [[ -n "$focused" ]] && hypr_focus_monitor "$focused"
+  # A saver window must hold focus or the loop inside exits. Focus lands
+  # asynchronously (and silently fails if the window isn't mapped yet),
+  # so re-assert until it sticks — then restore the original monitor only
+  # if no saver ended up focused (refocusing would yank focus away and
+  # instantly exit the saver we just started).
+  for _ in 1 2 3 4 5 6; do
+    hyprctl activewindow -j 2>/dev/null | jq -e '.class == "glyphsaver"' >/dev/null 2>&1 && break
+    focus_screensaver
+    sleep 0.5
+  done
+  if [[ -n "$focused" ]] && ! hyprctl activewindow -j 2>/dev/null | jq -e '.class == "glyphsaver"' >/dev/null 2>&1; then
+    hypr_focus_monitor "$focused"
+  fi
 }
 
 # --- subcommand dispatch (collect passthrough flags first) ---

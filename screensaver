@@ -185,11 +185,43 @@ if ((ONCE)); then
   exit 0
 fi
 
+STARTED=$SECONDS
+# No stdin reads during the first seconds: the engine queries the terminal
+# on startup and its reply bytes arrive on our stdin too — reading them
+# would both corrupt the engine's startup and fake a keypress exit.
+GRACE=3
+
+# Returns 0 when the user pressed a real key (exit the saver), 1 on timeout
+# or when the input starts an escape sequence. Every effect cycle spawns a
+# fresh engine process that queries the terminal on startup, and those reply
+# bytes arrive on our stdin too — any ESC-led bytes are swallowed, since no
+# key we care about needs them (printables, space, enter, ctrl-keys all exit).
+# Trade-off: bare ESC / arrows / F-keys do not exit; everything else does.
+user_pressed_key() {
+  local b
+  IFS= read -r -n1 -t 1 -u 0 b || return 1
+  if [[ "$b" == $'\e' ]]; then
+    # Drain the rest of the escape sequence (terminal reply or special
+    # key) so leftover bytes can't false-trigger the next check.
+    while IFS= read -r -n1 -t 0.05 -u 0 b; do
+      :
+    done
+    return 1
+  fi
+  return 0
+}
+
 while true; do
   "$ENGINE" "${BASE_ARGS[@]}" "${MODE_ARGS[@]}" &
+  CYCLE_START=$SECONDS
   while pgrep -t "${tty_dev#/dev/}" -x "$ENGINE" >/dev/null 2>&1; do
-    # Any keypress exits. Focus loss (alt-tab / click away) exits too.
-    if read -r -n1 -t 1 || ! is_screensaver_focused; then
+    if ((SECONDS - CYCLE_START < 2)); then
+      # Fresh engine queries the terminal on startup; don't read stdin
+      # while its reply bytes are in flight.
+      sleep 0.2
+    elif ((SECONDS - STARTED < GRACE)); then
+      sleep 0.2
+    elif user_pressed_key || { ! is_screensaver_focused && ((SECONDS - STARTED > 5)); }; then
       exit_screensaver
     fi
   done
