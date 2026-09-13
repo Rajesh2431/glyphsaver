@@ -9,6 +9,7 @@
 #   toggle [on|off|status]  enable/disable idle starts (no arg flips)
 #   status                  running state, toggle, engines, art, style
 #   show | config           all saved settings (art, style, engine, mode, filters, fps, idle)
+#   doctor | check          full health check (PATH, deps, rules, service, art fit)
 #   preview [EFFECT]        one effect cycle inline (any key exits)
 #   preview-text "words"    render text and preview once without saving
 #   ascii "words"           print Omarchy-style art to stdout (no save)
@@ -23,7 +24,7 @@
 #   fps N                   frame rate 1-1000 (default 120)
 #   engine auto|ttfx|tte    effects engine
 #   style NAME | auto       default text style (see: glyphsaver styles)
-#   size auto|1-8          art scaling: auto-fill screen (default), 1 = original
+#   size auto|1-8 [--preview] art scaling: auto-fill screen (default), 1 = original
 #   set-image IMG           convert PNG/SVG to ASCII art (needs chafa)
 #   set-art FILE            use an existing .txt art file
 #   arts                    list bundled presets (heroes, cars, funny, Japanese)
@@ -41,7 +42,11 @@ set -u
 SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
 INNER="$SCRIPT_DIR/screensaver"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/lib.sh" 2>/dev/null || source /usr/share/glyphsaver/lib.sh
+source "$SCRIPT_DIR/lib.sh" 2>/dev/null || source /usr/share/glyphsaver/lib.sh 2>/dev/null || true
+if ! command -v ss_asset_dir &>/dev/null; then
+  echo "Error: shared lib.sh not found ($SCRIPT_DIR/lib.sh, /usr/share/glyphsaver/lib.sh)." >&2
+  exit 1
+fi
 ASSET_DIR="$(ss_asset_dir)"
 # Installed layout: binaries live on PATH, assets under /usr/share.
 if [[ ! -x "$INNER" ]] && command -v glyphsaver-loop &>/dev/null; then
@@ -86,6 +91,110 @@ cmd_status() {
   echo "art: $(resolve_art)"
   _font="$(ss_config_get SCREENSAVER_FONT "$CONFIG_FILE")"
   echo "style: ${_font:-auto-fit} (change text anytime with set-text; style stays)"
+}
+
+cmd_doctor() {
+  # Full health check: glyphsaver doctor | check. Exits 0 when healthy.
+  local ok=1 failures=0 row
+  ok() { echo "  ok    $1"; }
+  bad() { echo "  FAIL  $1"; failures=$((failures + 1)); }
+
+  echo "Glyphsaver doctor:"
+
+  # Shared library / RESOLUTION
+  if command -v ss_asset_dir &>/dev/null; then
+    ok "shared lib.sh loaded (ss_* helpers available)"
+  else
+    bad "shared lib.sh not found/loaded"
+    echo "  hint: source $SCRIPT_DIR/lib.sh failed; install glyphsaver properly"
+    echo "Result: $failures problem(s) found." >&2
+    return 1
+  fi
+
+  # Dependencies
+  for dep in bash jq socat python3; do
+    if command -v "$dep" &>/dev/null; then
+      ok "dependency $dep"
+    else
+      bad "dependency $dep missing"
+    fi
+  done
+  if command -v ttfx &>/dev/null || [[ -x "$HOME/.local/bin/ttfx" ]]; then
+    ok "engine ttfx available"
+  else
+    bad "engine ttfx missing — cargo install --git https://github.com/omacom-io/ttfx"
+  fi
+  if command -v tte &>/dev/null || [[ -x "$HOME/.local/bin/tte" ]]; then
+    ok "engine tte available"
+  else
+    bad "engine tte missing — yay -S python-terminaltexteffects"
+  fi
+
+  # Terminal
+  _term="$(detect_terminal)"
+  if [[ -n "$_term" ]]; then
+    ok "terminal: $_term"
+  else
+    bad "no supported terminal found (alacritty/ghostty/foot/kitty)"
+  fi
+
+  # Config
+  if [[ -f "$CONFIG_FILE" ]]; then
+    ok "config: $CONFIG_FILE"
+  else
+    bad "config file missing: $CONFIG_FILE (run glyphsaver-setup)"
+  fi
+  if [[ -f "$HOME/.config/glyphsaver/idle.conf" ]]; then
+    ok "idle config present"
+  else
+    echo "  note: idle.conf not found — defaults apply (150s idle)"
+  fi
+
+  # Art
+  _art="$(resolve_art)"
+  if [[ -f "$_art" ]]; then
+    ok "art exists ($_art)"
+    _d="$(ss_dwidth "$_art")"
+    _h="$(wc -l < "$_art" | tr -d ' ')"
+    echo "  info  art is ${_d}×${_h}, screen estimate $(ss_max_cols)×$(ss_max_rows)"
+  else
+    bad "art file missing: $_art"
+  fi
+
+  # Hyprland
+  if command -v hyprctl &>/dev/null && hyprctl monitors -j >/dev/null 2>&1; then
+    ok "Hyprland reachable ($(hyprctl monitors -j 2>/dev/null | jq -r 'length') monitor(s))"
+    if hyprctl getoption decoration:active_opacity >/dev/null 2>&1; then
+      # window rules live in setup-managed lua; check for the managed block
+      if grep -qs "glyphsaver" "$HOME/.config/hypr/UserConfigs/user_window_rules.lua" 2>/dev/null; then
+        ok "fullscreen window rules present"
+      else
+        bad "fullscreen rules missing — rerun glyphsaver-setup"
+      fi
+    else
+      bad "cannot query Hyprland options"
+    fi
+  else
+    echo "  note  Hyprland not reachable — inline mode only"
+  fi
+
+  # Idle service
+  if command -v systemctl &>/dev/null; then
+    if systemctl --user is-active glyphsaver-idle.service >/dev/null 2>&1; then
+      ok "idle service active"
+    elif systemctl --user is-enabled glyphsaver-idle.service >/dev/null 2>&1; then
+      echo "  note  idle service enabled but not running (starts with session)"
+    else
+      echo "  note  idle service not enabled — run glyphsaver-setup to install"
+    fi
+  fi
+
+  if ((failures > 0)); then
+    echo "Result: $failures problem(s) found." >&2
+    return 1
+  fi
+  echo "Result: all checks passed."
+  return 0
 }
 
 cmd_toggle() {
@@ -274,22 +383,68 @@ cmd_style() {
 
 cmd_size() {
   # View or set art scaling: auto (fill screen, default) | 1 (off) | 2-8.
-  local arg="${1:-}"
+  # With --preview (or interactively) does a live one-cycle preview before keep.
+  local arg="${1:-}" do_preview=0 old_val preview_art
+  if [[ "$arg" == "--preview" ]]; then
+    arg="${2:-}"; do_preview=1
+  elif [[ "${2:-}" == "--preview" ]]; then
+    do_preview=1
+  fi
   if [[ -z "$arg" ]]; then
     echo "size: $(ss_config_get SCREENSAVER_SCALE "$CONFIG_FILE")"
     echo "(blank = auto-fill screen; 1 = original size; N = fixed scale)"
+    echo "Preview: glyphsaver size 2 --preview  (or: glyphsaver size 2)"
     return 0
   fi
   if [[ "$arg" == "auto" ]]; then
+    old_val="$(ss_config_get SCREENSAVER_SCALE "$CONFIG_FILE")"
     ss_config_set SCREENSAVER_SCALE "" "$CONFIG_FILE"
   elif [[ "$arg" =~ ^[1-8]$ ]]; then
+    old_val="$(ss_config_get SCREENSAVER_SCALE "$CONFIG_FILE")"
     ss_config_set SCREENSAVER_SCALE "$arg" "$CONFIG_FILE"
   else
-    echo "Usage: glyphsaver size auto|1-8" >&2
+    echo "Usage: glyphsaver size auto|1-8 [--preview]" >&2
     return 1
   fi
   echo "size: ${arg:-auto-fill}"
-  echo "Re-render current text to apply: glyphsaver text \"...\" (or re-set art)."
+  # Live preview: refit current art with the new scale and run one cycle inline.
+  if [[ -t 1 && -t 0 ]]; then
+    # auto-preview in interactive terminals unless --no-preview
+    [[ "$do_preview" == "0" && "${3:-}" != "--no-preview" ]] && do_preview=1
+  fi
+  if ((do_preview)); then
+    local _cur_art _prev
+    _cur_art="$(resolve_art)"
+    preview_art=$(mktemp)
+    # Build preview art refitted with the just-saved scale.
+    if [[ -f "$_cur_art" ]]; then
+      # Use stored scale via env, so ss_scale_art honours it.
+      if [[ "$arg" == "auto" ]]; then
+        SCREENSAVER_SCALE="" ss_autofit_art "$_cur_art" "$preview_art" "$(ss_max_cols)" "$(ss_max_rows)" 2>/dev/null || \
+          SCREENSAVER_SCALE="" ss_scale_art "$_cur_art" "$preview_art" >/dev/null 2>&1 || cp "$_cur_art" "$preview_art"
+      else
+        SCREENSAVER_SCALE="$arg" ss_autofit_art "$_cur_art" "$preview_art" "$(ss_max_cols)" "$(ss_max_rows)" 2>/dev/null || \
+          SCREENSAVER_SCALE="$arg" ss_scale_art "$_cur_art" "$preview_art" >/dev/null 2>&1 || cp "$_cur_art" "$preview_art"
+      fi
+      echo "Previewing size $arg (current art) — any key exits one cycle..."
+      if "$INNER" --once --art "$preview_art" "${PASSTHROUGH[@]}" 2>/dev/null; then
+        printf '\033[?25h'
+      fi
+      if [[ -t 0 ]]; then
+        read -rp "Keep size $arg? (Y/n): " _prev || true
+        if [[ "$_prev" =~ ^[Nn] ]]; then
+          ss_config_set SCREENSAVER_SCALE "$old_val" "$CONFIG_FILE"
+          echo "Reverted to: ${old_val:-auto-fill}"
+        else
+          echo "Kept size: $arg"
+        fi
+      fi
+    fi
+    rm -f "$preview_art" 2>/dev/null || true
+  else
+    echo "Re-render current text to apply: glyphsaver text \"...\" (or re-set art)."
+    echo "Preview with: glyphsaver size $arg --preview"
+  fi
 }
 
 cmd_styles() {
@@ -395,10 +550,25 @@ launch() {
   local focused
   focused=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty' 2>/dev/null || true)
 
+  # Close saver windows by PID (version-proof: plain `dispatch closewindow`
+  # is parsed as Lua on Hyprland >= 0.55 and fails; there is no close API
+  # under hl.dsp). Falls back to killing our loop processes.
+  close_screensaver_windows() {
+    local pids
+    pids=$(hyprctl clients -j 2>/dev/null | jq -r '.[] | select(.class == "glyphsaver") | .pid // empty' 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+      # shellcheck disable=SC2086
+      kill $pids 2>/dev/null || true
+    fi
+    pkill -f '[g]lyphsaver-loop' 2>/dev/null || true
+  }
+
   hypr_focus_monitor() {
-    # Lua-first (Hyprland >= 0.55 evaluates dispatch as Lua), plain fallback.
+    # Lua-first (Hyprland >= 0.55 evaluates dispatch as Lua), plain fallback
+    # for older versions.
     hyprctl dispatch "hl.dsp.focus({ monitor = \"$1\" })" >/dev/null 2>&1 ||
-      hyprctl dispatch focusmonitor "$1" >/dev/null 2>&1 || true
+      hyprctl dispatch focusmonitor "$1" >/dev/null 2>&1 ||
+      echo "Warning: could not focus monitor $1." >&2
   }
 
   hypr_exec() {
@@ -407,13 +577,16 @@ launch() {
     # to the plain exec form in that (rare) case.
     if [[ "$command" != *']]'* ]]; then
       hyprctl dispatch "hl.dsp.exec_cmd([[$command]])" >/dev/null 2>&1 && return 0
+      echo "Warning: Lua exec failed, trying plain dispatch..." >&2
     fi
-    hyprctl dispatch exec -- bash -lc "$command" >/dev/null 2>&1 || true
+    hyprctl dispatch exec -- bash -lc "$command" >/dev/null 2>&1 ||
+      echo "Warning: failed to spawn screensaver terminal." >&2
   }
 
   focus_screensaver() {
     hyprctl dispatch "hl.dsp.focus({ window = 'class:glyphsaver' })" >/dev/null 2>&1 ||
-      hyprctl dispatch focuswindow class:glyphsaver >/dev/null 2>&1 || true
+      hyprctl dispatch focuswindow class:glyphsaver >/dev/null 2>&1 ||
+      echo "Warning: could not focus screensaver window." >&2
   }
 
   # Discover the event socket even when systemd didn't pass Hyprland env.
@@ -438,6 +611,14 @@ launch() {
     while ((SECONDS < deadline)) && IFS= read -r -t $((deadline - SECONDS)) -u "$events" line; do
       [[ $line == openwindow\>\>*,glyphsaver,* ]] && return 0
     done
+    if ((SECONDS >= deadline)); then
+      echo "Warning: timed out waiting for screensaver window." >&2
+      return 1
+    fi
+    # Event stream hit EOF (socat died) before any window event: don't
+    # claim success; poll for the window instead.
+    sleep 0.4
+    hyprctl clients -j 2>/dev/null | jq -e '[.[] | select(.class == "glyphsaver")] | length > 0' >/dev/null 2>&1
   }
 
   while IFS= read -r m; do
@@ -517,11 +698,13 @@ launch | force | "")
   launch
   ;;
 stop)
-  # Stop only our own saver: close compositor windows, kill loop + its
-  # engines (marked with --reuse-canvas). Never pkill all ttfx/tte.
-  if command -v hyprctl &>/dev/null; then
-    hyprctl dispatch closewindow class:glyphsaver >/dev/null 2>&1 || true
-  fi
+  # Stop only our own saver: close compositor windows by PID (plain
+  # `dispatch closewindow` fails on Hyprland >= 0.55 Lua parsing), kill
+  # loop + its engines (marked with --reuse-canvas). Never pkill all ttfx/tte.
+  _pids=$(hyprctl clients -j 2>/dev/null | jq -r '.[] | select(.class == "glyphsaver") | .pid // empty' 2>/dev/null || true)
+  # shellcheck disable=SC2086
+  [[ -n "${_pids:-}" ]] && kill $_pids 2>/dev/null || true
+  unset _pids
   pkill -f 'ttfx.*--reuse-canvas' 2>/dev/null || true
   pkill -f 'tte.*--reuse-canvas' 2>/dev/null || true
   pkill -f '[g]lyphsaver-loop' 2>/dev/null || true
@@ -533,6 +716,9 @@ toggle)
   ;;
 status)
   cmd_status
+  ;;
+doctor | check)
+  cmd_doctor
   ;;
 preview)
   cmd_preview "${1:-}"
@@ -645,7 +831,7 @@ style)
   cmd_style "${1:-}"
   ;;
 size)
-  cmd_size "${1:-}"
+  cmd_size "${1:-}" "${2:-}" "${3:-}"
   ;;
 styles)
   cmd_styles

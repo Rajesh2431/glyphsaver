@@ -121,20 +121,24 @@ ss_config_get() {
   printf '%s' "$val"
 }
 
-# Usable terminal rows fullscreen: smallest monitor wins. Cell ≈ 23px tall.
+# Usable terminal rows fullscreen: smallest monitor wins.
+# Calibrated: real fullscreen Alacritty at font-size 18 measures 31 rows on
+# 1080p (cell ≈ 35px tall), not the 23px a bare font metric suggests
+# (line spacing + padding). Divisors must match the bundled terminal
+# configs, not the font file.
 ss_max_rows() {
   local min=0 h rows
   if command -v hyprctl &>/dev/null; then
     while read -r _ h; do
       [[ "$h" =~ ^[0-9]+$ ]] || continue
-      rows=$((h / 23))
+      rows=$((h / 35))
       if ((min == 0 || rows < min)); then
         min=$rows
       fi
     done < <(hyprctl monitors -j 2>/dev/null | jq -r '.[] | "\(.width) \(.height)"' 2>/dev/null)
   fi
   if ((min <= 0)); then
-    min=40
+    min=30
   fi
   if ((min > 100)); then
     min=100
@@ -157,15 +161,44 @@ print(w)
 ' "$1" 2>/dev/null || awk '{ print length }' "$1" | sort -n | tail -1
 }
 
+# Fit ART to an exactly measured terminal (COLS x ROWS): unscale to the
+# original render when possible, then re-scale with those dimensions.
+# Returns 0 on success, 1 when no uniform base can be recovered.
+ss_autofit_art() {
+  local infile="$1" outfile="$2" cols="$3" rows="$4" base
+  [[ "$cols" =~ ^[0-9]+$ ]] && ((cols >= 20)) || return 1
+  [[ "$rows" =~ ^[0-9]+$ ]] && ((rows >= 10)) || return 1
+  base=$(mktemp)
+  if ss_unscale_art "$infile" "$base" >/dev/null 2>&1; then
+    SS_COLS_OVERRIDE="$cols" SS_ROWS_OVERRIDE="$rows" ss_scale_art "$base" "$outfile" >/dev/null
+    rm -f "$base"
+    return 0
+  fi
+  rm -f "$base"
+  return 1
+}
+
 # Scale art to fill the screen: biggest integer scale that leaves a small
 # margin, derived from the art size (so short text goes huge, long text
-# stays readable). SCREENSAVER_SCALE="" (auto), "1"/"off" disables, N forces.
+# stays readable). Width target leaves ~1 letter margin each side
+# (Omarchy-style full-bleed); height keeps ~2 rows top/bottom.
+# SCREENSAVER_SCALE="" (auto), "1"/"off" disables, N forces.
 ss_scale_art() {
   local infile="$1" outfile="$2"
   local mode="${SCREENSAVER_SCALE:-}"
   local max_cols max_rows
-  max_cols=$(ss_max_cols)
-  max_rows=$(ss_max_rows)
+  # SS_COLS_OVERRIDE/SS_ROWS_OVERRIDE let the loop fit to the real
+  # measured terminal instead of the monitor estimate.
+  if [[ -n "${SS_COLS_OVERRIDE:-}" ]]; then
+    max_cols="$SS_COLS_OVERRIDE"
+  else
+    max_cols=$(ss_max_cols)
+  fi
+  if [[ -n "${SS_ROWS_OVERRIDE:-}" ]]; then
+    max_rows="$SS_ROWS_OVERRIDE"
+  else
+    max_rows=$(ss_max_rows)
+  fi
   local w h s
   w=$(ss_dwidth "$infile")
   h=$(wc -l <"$infile")
@@ -174,7 +207,7 @@ ss_scale_art() {
   if [[ "$mode" =~ ^[0-9]+$ ]] && ((mode >= 1)); then
     s=$mode
     ((s > 8)) && s=8
-    local fitw=$(((max_cols - 4) / w)) fith=$(((max_rows - 4) / h))
+    local fitw=$(((max_cols - 2) / w)) fith=$(((max_rows - 4) / h))
     ((fitw < 1)) && fitw=1
     ((fith < 1)) && fith=1
     ((s > fitw)) && s=$fitw
@@ -182,7 +215,7 @@ ss_scale_art() {
   elif [[ "$mode" == "off" || "$mode" == "1" ]]; then
     s=1
   else
-    s=$(((max_cols - 4) / w))
+    s=$(((max_cols - 2) / w))
     local sh=$(((max_rows - 4) / h))
     ((sh < s)) && s=$sh
     ((s > 8)) && s=8
@@ -207,14 +240,61 @@ EOF
   echo "scale x$s"
 }
 
+# Reverse ss_scale_art: if FILE is an integer-upscaled render (every s×s
+# block uniform, for some s in 2..8), write the original back and print s.
+# Used to re-fit art rendered with older/wrong screen estimates without
+# quality loss. Returns 1 when no uniform scale is found (e.g. pasted art).
+ss_unscale_art() {
+  local infile="$1" outfile="$2"
+  python3 - "$infile" "$outfile" <<'EOF' 2>/dev/null
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+rows = open(src, encoding='utf-8', errors='replace').read().splitlines()
+# Strip uniform trailing padding (scalers keep ragged right edges).
+rows = [r.rstrip(' ') for r in rows]
+while rows and not rows[-1].strip():
+    rows.pop()
+if not rows:
+    sys.exit(1)
+found = 0
+for s in range(8, 1, -1):
+    if len(rows) % s != 0:
+        continue
+    ok = True
+    base = []
+    for g in range(0, len(rows), s):
+        grp = rows[g:g + s]
+        if any(r != grp[0] for r in grp[1:]):
+            ok = False
+            break
+        r = grp[0]
+        if len(r) % s != 0:
+            ok = False
+            break
+        for i in range(0, len(r), s):
+            if any(c != r[i] for c in r[i:i + s]):
+                ok = False
+                break
+        if not ok:
+            break
+        base.append(''.join(r[i] for i in range(0, len(r), s)))
+    if ok and base:
+        open(dst, 'w', encoding='utf-8').write('\n'.join(base) + '\n')
+        print(s)
+        sys.exit(0)
+sys.exit(1)
+EOF
+}
+
 # Usable terminal columns for fullscreen art: smallest monitor wins so the
-# art fits everywhere. Cell ≈ 11px wide at the bundled font-size 18.
+# art fits everywhere. Calibrated: real fullscreen Alacritty at font-size 18
+# measures 137 cols on 1080p (cell ≈ 14px wide).
 ss_max_cols() {
   local min=0 w cols
   if command -v hyprctl &>/dev/null; then
     while read -r w _; do
       [[ "$w" =~ ^[0-9]+$ ]] || continue
-      cols=$((w / 11))
+      cols=$((w / 14))
       if ((min == 0 || cols < min)); then
         min=$cols
       fi
@@ -259,11 +339,8 @@ ss_font_dir() {
 
 ss_style_font() {
   # Map a style name to its .flf basename.
-  if [[ "$1" == "omarchy" ]]; then
-    echo "Delta-Corps-Priest-1"
-  else
-    echo "$1"
-  fi
+  # `omarchy` is the true wordmark font (fonts/omarchy.flf).
+  echo "$1"
 }
 
 ss_valid_style() {

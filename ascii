@@ -1,9 +1,8 @@
 #!/bin/bash
 # glyphsaver-ascii: render text as ASCII art in the Omarchy wordmark style.
-# Uses the bundled Delta Corps Priest 1 FIGlet font (letters + space, as in
-# Omarchy) extended with matching hand-drawn digits 0-9.
-# Renderer logic ported from basecamp/omarchy `omarchy-ascii` (quattro);
-# only the font source changed (file instead of heredoc) to allow digits.
+# Default font is the true Omarchy wordmark (fonts/omarchy.flf, extracted
+# pixel-exact from the Omarchy logo.txt; unicase with hand-drawn A-Z 0-9
+# in the same style). --font picks any other bundled FIGlet face.
 #
 # Usage: ascii "Some text 123" | ascii < file
 # Installs as `glyphsaver ascii` via the `ascii` subcommand.
@@ -16,7 +15,7 @@ if [[ -d "$SCRIPT_DIR/fonts" ]]; then
 else
   FONT_DIR="/usr/share/glyphsaver/fonts"
 fi
-FONT_NAME="Delta-Corps-Priest-1"
+FONT_NAME="omarchy"
 FONT_FILE="$FONT_DIR/$FONT_NAME.flf"
 
 usage() {
@@ -94,9 +93,11 @@ fi
   exit 1
 }
 
-# Only the Omarchy wordmark font is kerned (slid tight, like the logo);
-# stock FIGlet faces use full-width layout like real figlet.
+# Layout: the Omarchy wordmark font carries fixed bearings (gaps encoded
+# in the glyphs, like the logo) so it concatenates with no sliding;
+# Delta-Corps-Priest-1 is kerned tight; stock faces use full-width layout.
 case "$FONT_NAME" in
+omarchy) KERN=2 ;;
 Delta-Corps-Priest-1) KERN=1 ;;
 *) KERN=0 ;;
 esac
@@ -201,9 +202,16 @@ function draw(source,   chars, total, i, r, ch, code, piece, glyph_width, out, t
     }
 
     if (!drew) {
-      for (r = 0; r < height; r++) {
-        out[r] = rtrim(piece[r])
-        trail[r] = glyph_width - length(out[r])
+      if (KERN == 2) {
+        for (r = 0; r < height; r++) {
+          out[r] = piece[r]
+          trail[r] = 0
+        }
+      } else {
+        for (r = 0; r < height; r++) {
+          out[r] = rtrim(piece[r])
+          trail[r] = glyph_width - length(out[r])
+        }
       }
 
       drew = 1
@@ -211,6 +219,14 @@ function draw(source,   chars, total, i, r, ch, code, piece, glyph_width, out, t
     }
 
     amount = -1
+    if (KERN == 2) {
+      # Fixed bearings (Omarchy wordmark): glyphs abut exactly as drawn.
+      for (r = 0; r < height; r++) {
+        out[r] = out[r] piece[r]
+      }
+      drew = 1
+      continue
+    }
     if (!KERN) {
       # Full-width layout (like figlet default): glyphs sit side by side,
       # only separated from the previous art by one column when needed.

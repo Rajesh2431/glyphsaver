@@ -24,7 +24,28 @@ set -u
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/lib.sh" 2>/dev/null || source /usr/share/glyphsaver/lib.sh
+source "$SCRIPT_DIR/lib.sh" 2>/dev/null || source /usr/share/glyphsaver/lib.sh 2>/dev/null || true
+if ! command -v ss_asset_dir &>/dev/null; then
+  echo "Error: shared lib.sh not found ($SCRIPT_DIR/lib.sh, /usr/share/glyphsaver/lib.sh)." >&2
+  exit 1
+fi
+
+# Resolve a binary even when Hyprland-spawned windows carry a minimal PATH
+# (no ~/.local/bin). Checks PATH first, then well-known locations.
+ss_resolve_bin() {
+  local name="$1" p
+  if p=$(command -v "$name" 2>/dev/null); then
+    echo "$p"
+    return 0
+  fi
+  for p in "$HOME/.local/bin/$name" "/usr/local/bin/$name" "/usr/bin/$name"; do
+    if [[ -x "$p" ]]; then
+      echo "$p"
+      return 0
+    fi
+  done
+  return 1
+}
 CONFIG_FILE="$HOME/.config/glyphsaver/config"
 # shellcheck disable=SC1090
 [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
@@ -42,8 +63,9 @@ ONCE=0
 KNOWN_EFFECTS="beams binarypath blackhole bouncyballs bubbles burn colorshift crumble decrypt errorcorrect expand fireworks highlight laseretch matrix middleout orbittingvolley overflow pour print rain randomsequence rings scattered slice slide smoke spotlights spray swarm sweep synthgrid thunderstorm unstable vhstape waves wipe"
 
 list_effects() {
-  if command -v "$1" &>/dev/null; then
-    "$1" --help 2>&1 | grep -oE '\{[a-z,]+(,|$)' | tr ',' '\n' | tr -d '{' | grep -v '^$' || echo "$KNOWN_EFFECTS" | tr ' ' '\n'
+  local _bin
+  if _bin="$(ss_resolve_bin "$1" 2>/dev/null)"; then
+    "$_bin" --help 2>&1 | grep -oE '\{[a-z,]+(,|$)' | tr ',' '\n' | tr -d '{' | grep -v '^$' || echo "$KNOWN_EFFECTS" | tr ' ' '\n'
   else
     echo "$KNOWN_EFFECTS" | tr ' ' '\n'
   fi
@@ -86,7 +108,9 @@ while [[ $# -gt 0 ]]; do
     ;;
   --list-effects)
     _e="$ENGINE"
-    [[ "$_e" == "auto" ]] && _e="$(command -v ttfx &>/dev/null && echo ttfx || echo tte)"
+    if [[ "$_e" == "auto" ]]; then
+      if ss_resolve_bin ttfx &>/dev/null; then _e="ttfx"; else _e="tte"; fi
+    fi
     list_effects "$_e"
     exit 0
     ;;
@@ -113,10 +137,14 @@ case "$ENGINE" in auto | ttfx | tte) ;; *) ENGINE="auto" ;; esac
 case "$MODE" in random | single) ;; *) MODE="random" ;; esac
 [[ "$EFFECT" =~ ^[a-z]+$ ]] || EFFECT="matrix"
 
+# Optional: runtime per-monitor autofit — re-fit stored art to the real
+# terminal grid after fullscreen. Set DISABLE_AUTOFIT=1 to skip.
+DISABLE_AUTOFIT="${DISABLE_AUTOFIT:-0}"
+
 if [[ "$ENGINE" == "auto" ]]; then
-  if command -v ttfx &>/dev/null; then
+  if ss_resolve_bin ttfx &>/dev/null; then
     ENGINE="ttfx"
-  elif command -v tte &>/dev/null; then
+  elif ss_resolve_bin tte &>/dev/null; then
     ENGINE="tte"
   else
     echo "Error: neither 'ttfx' nor 'tte' found." >&2
@@ -125,10 +153,17 @@ if [[ "$ENGINE" == "auto" ]]; then
     exit 1
   fi
 fi
-command -v "$ENGINE" &>/dev/null || {
-  echo "Error: engine '$ENGINE' not on PATH." >&2
+ENGINE_BIN="$(ss_resolve_bin "$ENGINE" || true)"
+if [[ -z "${ENGINE_BIN:-}" ]]; then
+  echo "Error: engine '$ENGINE' not found (PATH plus ~/.local/bin, /usr/local/bin, /usr/bin)." >&2
+  echo "  yay -S python-terminaltexteffects   # tte" >&2
+  echo "  cargo install --git https://github.com/omacom-io/ttfx  # ttfx" >&2
   exit 1
-}
+fi
+
+RUNTIME_ART="$ART"
+RUNTIME_TMP=""
+cleanup_runtime_art() { [[ -n "${RUNTIME_TMP:-}" ]] && rm -f "$RUNTIME_TMP" 2>/dev/null || true; }
 
 BASE_ARGS=(-i "$ART" --frame-rate "$FPS" --canvas-width 0 --canvas-height 0
   --reuse-canvas --anchor-canvas c --anchor-text c --no-eol --no-restore-cursor)
@@ -153,21 +188,26 @@ is_screensaver_focused() {
 }
 
 exit_screensaver() {
+  cleanup_runtime_art
   command -v hyprctl &>/dev/null && hyprctl keyword cursor:invisible false &>/dev/null || true
   printf '\033[?25h'
   # Only kill engines spawned by this screensaver (they carry our
   # --reuse-canvas marker); never pkill all ttfx/tte on the system.
   pkill -f "$ENGINE.*--reuse-canvas" 2>/dev/null || true
-  # Ask the compositor to close saver windows; fall back to killing only
-  # our own loop processes.
+  # Close saver windows by PID (plain `dispatch closewindow` fails on
+  # Hyprland >= 0.55 Lua parsing; no close API exists under hl.dsp).
   if command -v hyprctl &>/dev/null; then
-    hyprctl dispatch closewindow class:glyphsaver >/dev/null 2>&1 || true
+    _pids=$(hyprctl clients -j 2>/dev/null | jq -r '.[] | select(.class == "glyphsaver") | .pid // empty' 2>/dev/null || true)
+    # shellcheck disable=SC2086
+    [[ -n "${_pids:-}" ]] && kill $_pids 2>/dev/null || true
+    unset _pids
   fi
   pkill -f '[g]lyphsaver-loop' 2>/dev/null || true
   exit 0
 }
 
 trap exit_screensaver SIGINT SIGTERM SIGHUP SIGQUIT
+trap cleanup_runtime_art EXIT
 
 printf '\033]11;rgb:00/00/00\007'
 printf '\033[?25l'
@@ -186,8 +226,36 @@ wait_for_terminal_resize() {
 }
 wait_for_terminal_resize
 
+# Runtime auto-fit: each fullscreen window measures its real grid (stty)
+# and losslessly re-fits stored art to it. This gives per-monitor exact
+# fit (e.g. 137×31 on 1080p) without relying on monitor-px estimates.
+if [[ "$DISABLE_AUTOFIT" != "1" ]]; then
+  _cols=$(stty size 2>/dev/null | awk '{print $2}')
+  _rows=$(stty size 2>/dev/null | awk '{print $1}')
+  if [[ "$_cols" =~ ^[0-9]+$ && "$_rows" =~ ^[0-9]+$ ]] && (( _cols >= 40 && _rows >= 10 )); then
+    _rtmp=$(mktemp)
+    if ss_autofit_art "$ART" "$_rtmp" "$_cols" "$_rows" 2>/dev/null; then
+      RUNTIME_ART="$_rtmp"
+      RUNTIME_TMP="$_rtmp"
+      BASE_ARGS=(-i "$RUNTIME_ART" --frame-rate "$FPS" --canvas-width 0 --canvas-height 0 \
+        --reuse-canvas --anchor-canvas c --anchor-text c --no-eol --no-restore-cursor)
+    else
+      rm -f "$_rtmp" 2>/dev/null || true
+      # Non-uniform art (paste/image): fall back to override-based scaling
+      # without unscaling, still per-monitor exact.
+      SS_COLS_OVERRIDE="$_cols" SS_ROWS_OVERRIDE="$_rows" ss_scale_art "$ART" "$_rtmp" >/dev/null 2>&1 && {
+        RUNTIME_ART="$_rtmp"
+        RUNTIME_TMP="$_rtmp"
+        BASE_ARGS=(-i "$RUNTIME_ART" --frame-rate "$FPS" --canvas-width 0 --canvas-height 0 \
+          --reuse-canvas --anchor-canvas c --anchor-text c --no-eol --no-restore-cursor)
+      } || rm -f "$_rtmp" 2>/dev/null || true
+    fi
+  fi
+  unset _cols _rows _rtmp
+fi
+
 run_once() {
-  "$ENGINE" "${BASE_ARGS[@]}" "${MODE_ARGS[@]}" &
+  "$ENGINE_BIN" "${BASE_ARGS[@]}" "${MODE_ARGS[@]}" &
   wait $! 2>/dev/null || true
 }
 
@@ -242,7 +310,7 @@ mouse_moved() {
 }
 
 while true; do
-  "$ENGINE" "${BASE_ARGS[@]}" "${MODE_ARGS[@]}" &
+  "$ENGINE_BIN" "${BASE_ARGS[@]}" "${MODE_ARGS[@]}" &
   ENGINE_PID=$!
   CYCLE_START=$SECONDS
   # Liveness check: prefer tracking our own child PID (works without a tty);

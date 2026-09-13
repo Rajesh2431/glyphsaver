@@ -57,7 +57,10 @@ strip_managed_block() {
 
 echo "=== stop screensaver ==="
 if command -v hyprctl &>/dev/null; then
-  hyprctl dispatch closewindow class:glyphsaver >/dev/null 2>&1 || true
+  _pids=$(hyprctl clients -j 2>/dev/null | jq -r '.[] | select(.class == "glyphsaver") | .pid // empty' 2>/dev/null || true)
+  # shellcheck disable=SC2086
+  [[ -n "${_pids:-}" ]] && kill $_pids 2>/dev/null || true
+  unset _pids
 fi
 pkill -f 'ttfx.*--reuse-canvas' 2>/dev/null || true
 pkill -f 'tte.*--reuse-canvas' 2>/dev/null || true

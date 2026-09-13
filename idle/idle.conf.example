@@ -5,3 +5,7 @@ IDLE_WARN=540
 IDLE_LOCK=600
 IDLE_DPMS=720
 IDLE_ICON="$HOME/.config/swaync/images/ja.png"
+# Idle backend: swayidle (default, needs swayidle) or hypridle (needs hypridle).
+# hypridle writes ~/.config/hypr/hypridle.conf from these values on first run
+# or whenever this file changes.
+# IDLE_BACKEND=swayidle

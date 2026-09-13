@@ -15,8 +15,8 @@ via the Rust port [`omacom-io/ttfx`](https://github.com/omacom-io/ttfx).
   `beams`, `burn`, `wipe`, …), random cycling (default) or one fixed effect
 - **Two engines, auto-picked** — `ttfx` (fast Rust) preferred, `tte` (original
   Python) as fallback; override per-run or in config
-- **Auto-fit text art** — Omarchy wordmark style first (bundled Delta Corps
-  Priest 1 + matching digits), then game/display faces (doom, cybermedium,
+- **Auto-fit text art** — Omarchy wordmark style first (true wordmark font,
+  pixel-extracted from the Omarchy logo), then game/display faces (doom, cybermedium,
   chunky, epic, bloody, ghost, graffiti, modular), then classic FIGlet faces,
   then plain; the chosen style is saved as default and reused for later texts
 - **19 text styles** — `gly styles` lists them (`omarchy` default); `gly style NAME` switches
@@ -214,9 +214,11 @@ own config sections. `hyprctl reload` to apply window-rule changes.
 
 ## Credits
 
-- Screensaver concept, logo, wordmark font (Delta Corps Priest 1):
-  [`basecamp/omarchy`](https://github.com/basecamp/omarchy) — digits 0–9 in the
-  same style were drawn for this repo (`fonts/Delta-Corps-Priest-1.flf`)
+- Screensaver concept, logo, wordmark art:
+  [`basecamp/omarchy`](https://github.com/basecamp/omarchy) — the `omarchy`
+  text style (`fonts/omarchy.flf`) is pixel-extracted from their `logo.txt`
+  (unicase; remaining A–Z, 0–9 and punctuation hand-drawn here in the same
+  10-row block style)
 - Game/display FIGlet fonts (doom, cybermedium, chunky, epic, bloody, ghost,
   graffiti, modular): [`xero/figlet-fonts`](https://github.com/xero/figlet-fonts);
   classic faces from stock FIGlet 2.2.5

@@ -10,7 +10,7 @@
 #   4. Submit with `makepkg --printsrcinfo > .SRCINFO` + `git push aur`.
 pkgname=glyphsaver
 pkgver=1.0.0
-pkgrel=11
+pkgrel=13
 pkgdesc="Fullscreen ASCII screensaver with TTE/ttfx text effects (Hyprland, Omarchy-inspired)"
 arch=('any')
 url="https://github.com/Rajesh2431/glyphsaver"
@@ -21,6 +21,7 @@ optdepends=(
   'python-terminaltexteffects: original Python effects engine (tte)'
   'hyprland: per-monitor fullscreen launcher + window rules'
   'swayidle: idle handling (screensaver + lock, managed by glyphsaver-setup)'
+  'hypridle: alternative idle backend (set IDLE_BACKEND=hypridle in idle.conf)'
   'chafa: PNG/SVG to ASCII art conversion'
   'alacritty: supported fullscreen terminal'
   'foot: supported fullscreen terminal'
@@ -28,7 +29,7 @@ optdepends=(
   'kitty: supported fullscreen terminal'
 )
 source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('464d9495cc4e40b1bcc82d6d2a762f948b5a28afd8aaafb505e19def69c33b69')
+sha256sums=('2c830b0c597be8b8b3b166dc13d072c2099cf656e9f6f64ab92f91dda444443f')
 
 package() {
   cd "$srcdir"

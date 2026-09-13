@@ -3,13 +3,18 @@
 # Asks for idle timeout, screensaver text/art, engine — then wires up
 # swayidle service, Hyprland window rules, and art auto-fitted to your screen.
 # Safe to re-run. Idempotent: managed blocks are replaced, files backed up (.bak).
-# Usage: setup [--yes] [--idle SEC] [--text "..."] [--image IMG] [--art FILE] [--engine auto|ttfx|tte]
+# Usage: setup [--yes] [--check] [--idle SEC] [--text "..."] [--image IMG] [--art FILE] [--engine auto|ttfx|tte]
+#   --check   non-interactive health report (same as `glyphsaver doctor`)
 
 set -u
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
 # shellcheck disable=SC1091
-source "$SCRIPT_DIR/lib.sh" 2>/dev/null || source /usr/share/glyphsaver/lib.sh
+source "$SCRIPT_DIR/lib.sh" 2>/dev/null || source /usr/share/glyphsaver/lib.sh 2>/dev/null || true
+if ! command -v ss_asset_dir &>/dev/null; then
+  echo "Error: shared lib.sh not found ($SCRIPT_DIR/lib.sh, /usr/share/glyphsaver/lib.sh)." >&2
+  exit 1
+fi
 ASSET_DIR="$(ss_asset_dir)"
 LAUNCHER="$SCRIPT_DIR/launch-screensaver"
 [[ -x "$LAUNCHER" ]] || LAUNCHER="$(command -v glyphsaver 2>/dev/null || echo "$LAUNCHER")"
@@ -39,6 +44,7 @@ if [[ -f "$HOME/.local/state/omarchy-style-screensaver/off" ]]; then
 fi
 
 YES=0
+CHECK=0
 OPT_IDLE=""
 OPT_TEXT=""
 OPT_IMAGE=""
@@ -55,6 +61,7 @@ while [[ $# -gt 0 ]]; do
   --image) OPT_IMAGE="$2"; shift 2 ;;
   --art) OPT_ART="$2"; shift 2 ;;
   --engine) OPT_ENGINE="$2"; shift 2 ;;
+  --check | check) CHECK=1; shift ;;
   -h | --help)
     echo "Usage: setup [--yes] [--idle SEC|skip] [--text ...] [--style NAME] [--image IMG] [--art FILE] [--engine auto|ttfx|tte]"
     exit 0
@@ -79,6 +86,16 @@ ask() {
     echo "$var"
   fi
 }
+
+# `setup --check` is a non-interactive doctor: report health without changing
+# anything (same checks as `glyphsaver doctor`).
+if ((CHECK)); then
+  if [[ -x "$LAUNCHER" ]]; then
+    exec "$LAUNCHER" doctor
+  fi
+  echo "Error: launcher not found." >&2
+  exit 1
+fi
 
 backup() {
   local f="$1"

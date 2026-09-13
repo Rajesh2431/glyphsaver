@@ -1,5 +1,5 @@
 [Unit]
-Description=Glyphsaver idle handling (screensaver + lock via swayidle)
+Description=Glyphsaver idle handling (screensaver + lock via swayidle/hypridle)
 After=graphical-session.target hyprland-session.target
 PartOf=graphical-session.target
 

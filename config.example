@@ -15,3 +15,7 @@
 # Art scaling: "" = auto-fill screen width (default), "1"/"off" = original
 # size, "2"-"8" = fixed scale. Short text goes huge, long text stays readable.
 # SCREENSAVER_SCALE=""
+# Runtime auto-fit (default 0 = on): each fullscreen window measures its real
+# terminal grid (stty) and re-fits art to it, so every monitor gets an exact
+# fit. Set to 1 to keep the stored render unchanged.
+# DISABLE_AUTOFIT=0
