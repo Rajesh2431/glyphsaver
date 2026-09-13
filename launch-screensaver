@@ -172,7 +172,8 @@ cmd_time() {
     cp "$HYPRIDLE_FILE" "$HYPRIDLE_FILE.bak" && echo "(backup: $HYPRIDLE_FILE.bak)"
   fi
   ss_write_hypridle "$arg" "$(launcher_cmd)" "$HYPRIDLE_FILE"
-  echo "idle timeout set to ${arg}s. Restart hypridle to apply."
+  echo "idle timeout set to ${arg}s."
+  echo "hypridle only reads its config at startup — restart it: pkill hypridle; nohup hypridle >/tmp/hypridle.log 2>&1 &"
 }
 
 cmd_effect() {

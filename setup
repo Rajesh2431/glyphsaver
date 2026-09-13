@@ -205,7 +205,28 @@ if [[ -n "$IDLE_SECS" ]]; then
     backup "$HYPRIDLE"
     ss_write_hypridle "$IDLE_SECS" "$LAUNCHER" "$HYPRIDLE"
     echo "hypridle: screensaver listener at ${IDLE_SECS}s (before your lock)."
-    echo "Restart hypridle for it to apply (e.g. systemctl --user restart hypridle)."
+    if pgrep -x hypridle &>/dev/null; then
+      # hypridle only reads its config at startup — a running instance
+      # would otherwise keep enforcing the old config forever.
+      restart="$(ask "Restart hypridle now to apply (recommended)" "Y")"
+      if [[ "$restart" =~ ^[Yy] ]]; then
+        pkill -x hypridle 2>/dev/null || true
+        sleep 1
+        if pgrep -x hypridle &>/dev/null; then
+          echo "Old hypridle would not stop — start the new one manually:"
+          echo "  pkill -9 hypridle; nohup hypridle >/tmp/hypridle.log 2>&1 &"
+        else
+          nohup hypridle >/tmp/hypridle.log 2>&1 &
+          sleep 1
+          pgrep -x hypridle &>/dev/null && echo "hypridle restarted." || echo "hypridle failed to start — check /tmp/hypridle.log"
+        fi
+      else
+        echo "Restart hypridle yourself for it to apply (e.g. pkill hypridle; hypridle &)."
+      fi
+    else
+      echo "hypridle is not running — start it: nohup hypridle >/tmp/hypridle.log 2>&1 &"
+      echo "And autostart it (Hyprland exec-once or a systemd user service)."
+    fi
   else
     echo "No $HYPRIDLE found."
     mkidle="$(ask "Create a minimal hypridle.conf with just the screensaver listener" "Y")"

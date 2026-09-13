@@ -17,6 +17,6 @@ ln -sf "$HERE/launch-screensaver" "$BIN/gly"
 ln -sf "$HERE/screensaver" "$BIN/glyphsaver-loop"
 ln -sf "$HERE/setup" "$BIN/glyphsaver-setup"
 ln -sf "$HERE/uninstall.sh" "$BIN/glyphsaver-uninstall"
-echo "linked: glyphsaver, glyphsaver-loop, glyphsaver-setup, glyphsaver-uninstall"
+echo "linked: glyphsaver, gly, glyphsaver-loop, glyphsaver-setup, glyphsaver-uninstall"
 
 exec "$HERE/setup" "$@"

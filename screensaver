@@ -190,6 +190,8 @@ STARTED=$SECONDS
 # on startup and its reply bytes arrive on our stdin too — reading them
 # would both corrupt the engine's startup and fake a keypress exit.
 GRACE=3
+# Last seen pointer position (mouse movement exits, like Omarchy).
+LASTPOS=""
 
 # Returns 0 when the user pressed a real key (exit the saver), 1 on timeout
 # or when the input starts an escape sequence. Every effect cycle spawns a
@@ -211,6 +213,19 @@ user_pressed_key() {
   return 0
 }
 
+mouse_moved() {
+  # True when the pointer moved since the last call. First call arms it.
+  command -v hyprctl &>/dev/null || return 1
+  local pos
+  pos=$(hyprctl cursorpos 2>/dev/null || true)
+  [[ -z "$pos" ]] && return 1
+  if [[ -z "$LASTPOS" ]]; then
+    LASTPOS="$pos"
+    return 1
+  fi
+  [[ "$pos" != "$LASTPOS" ]]
+}
+
 while true; do
   "$ENGINE" "${BASE_ARGS[@]}" "${MODE_ARGS[@]}" &
   CYCLE_START=$SECONDS
@@ -221,7 +236,7 @@ while true; do
       sleep 0.2
     elif ((SECONDS - STARTED < GRACE)); then
       sleep 0.2
-    elif user_pressed_key || { ! is_screensaver_focused && ((SECONDS - STARTED > 5)); }; then
+    elif user_pressed_key || mouse_moved || { ! is_screensaver_focused && ((SECONDS - STARTED > 5)); }; then
       exit_screensaver
     fi
   done

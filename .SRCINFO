@@ -1,7 +1,7 @@
 pkgbase = glyphsaver
 	pkgdesc = Fullscreen ASCII screensaver with TTE/ttfx text effects (Hyprland, Omarchy-inspired)
 	pkgver = 1.0.0
-	pkgrel = 9
+	pkgrel = 10
 	url = https://github.com/Rajesh2431/glyphsaver
 	arch = any
 	license = MIT
@@ -18,6 +18,6 @@ pkgbase = glyphsaver
 	optdepends = ghostty: supported fullscreen terminal
 	optdepends = kitty: supported fullscreen terminal
 	source = glyphsaver-1.0.0.tar.gz
-	sha256sums = 5d8aafc5cf3357160acaa4665560e2844b25e8608d99eba9eca569928edbda08
+	sha256sums = a46390cd9157edfa7bebbb61eb1c0766063cd39ab8b2faa4d21f6236ab14b8d7
 
 pkgname = glyphsaver
