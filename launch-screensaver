@@ -10,6 +10,8 @@
 #   status                  running state, toggle, engines, art, style
 #   show | config           all saved settings (art, style, engine, mode, filters, fps, idle)
 #   preview [EFFECT]        one effect cycle inline (any key exits)
+#   preview-text "words"    render text and preview once without saving
+#   ascii "words"           print Omarchy-style art to stdout (no save)
 #   list-effects            the 37 available effects
 #   time SECONDS            set idle timeout, e.g. `glyphsaver time 150`
 #   time                    show current idle timeout
@@ -19,7 +21,7 @@
 #   exclude "a b" | clear   random pool block-list (clears include)
 #   fps N                   frame rate 1-1000 (default 120)
 #   engine auto|ttfx|tte    effects engine
-#   style FONT | auto       default text style: standard|small|mini|plain|auto
+#   style FONT | auto       default text style: omarchy|standard|small|mini|plain|auto
 #   set-image IMG           convert PNG/SVG to ASCII art (needs chafa)
 #   set-art FILE            use an existing .txt art file
 #   edit-art                open current art in $EDITOR
@@ -137,12 +139,7 @@ cmd_set_text() {
   write_art "$tmp"
   echo "Style: $style"
   if [[ -z "$_stored" ]]; then
-    if [[ "$style" == figlet/* ]]; then
-      _font="${style#figlet/}"
-      _font="${_font%% *}"
-    else
-      _font="plain"
-    fi
+    _font="$(ss_style_name "$style")"
     ss_config_set SCREENSAVER_FONT "$_font" "$CONFIG_FILE"
     echo "Style saved as default: $_font"
   fi
@@ -268,10 +265,10 @@ cmd_style() {
     return 0
   }
   case "$arg" in
-  standard | small | mini | plain) ss_config_set SCREENSAVER_FONT "$arg" "$CONFIG_FILE" ;;
+  omarchy | standard | small | mini | plain) ss_config_set SCREENSAVER_FONT "$arg" "$CONFIG_FILE" ;;
   auto) ss_config_set SCREENSAVER_FONT "" "$CONFIG_FILE" ;;
   *)
-    echo "Usage: glyphsaver style standard|small|mini|plain|auto" >&2
+    echo "Usage: glyphsaver style omarchy|standard|small|mini|plain|auto" >&2
     return 1
     ;;
   esac
@@ -454,6 +451,19 @@ status)
   ;;
 preview)
   cmd_preview "${1:-}"
+  ;;
+preview-text)
+  # Render text and preview it once without saving: glyphsaver preview-text "Hi 123"
+  _pt=$(mktemp)
+  _ps=$(ss_render_text "$*" "$_pt" "$(ss_config_get SCREENSAVER_FONT "$CONFIG_FILE")")
+  echo "Previewing ($_ps) — any key exits."
+  "$INNER" --once --art "$_pt" "${PASSTHROUGH[@]}"
+  printf '\033[?25h'
+  rm -f "$_pt"
+  ;;
+ascii)
+  # Print Omarchy-style art to stdout without saving: glyphsaver ascii "Hi 123"
+  exec "$(ss_ascii_bin)" "$*"
   ;;
 list-effects)
   exec "$INNER" --list-effects

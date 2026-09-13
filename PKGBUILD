@@ -10,7 +10,7 @@
 #   4. Submit with `makepkg --printsrcinfo > .SRCINFO` + `git push aur`.
 pkgname=glyphsaver
 pkgver=1.0.0
-pkgrel=3
+pkgrel=4
 pkgdesc="Fullscreen ASCII screensaver with TTE/ttfx text effects (Hyprland, Omarchy-inspired)"
 arch=('any')
 url="https://github.com/ChrisBuilds/terminaltexteffects"
@@ -29,7 +29,7 @@ optdepends=(
   'kitty: supported fullscreen terminal'
 )
 source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('83e495da760d4e996a6e056416bc35aed580dd8fb85868d8984829bbb8fd2fc7')
+sha256sums=('d3e62af0e253fbc11af3cc53efc7484fb8ae2a96c9bc419b0585abe97394e92d')
 
 package() {
   cd "$srcdir"
@@ -38,11 +38,14 @@ package() {
   install -Dm755 screensaver "$pkgdir/usr/bin/glyphsaver-loop"
   install -Dm755 setup "$pkgdir/usr/bin/glyphsaver-setup"
   install -Dm755 uninstall.sh "$pkgdir/usr/bin/glyphsaver-uninstall"
+  install -Dm755 ascii "$pkgdir/usr/bin/glyphsaver-ascii"
 
   local share="$pkgdir/usr/share/glyphsaver"
   install -Dm644 lib.sh "$share/lib.sh"
   install -Dm644 logo.txt "$share/logo.txt"
   install -Dm644 config.example "$share/config.example"
+  install -Dm755 ascii "$share/ascii"
+  install -Dm644 fonts/Delta-Corps-Priest-1.flf "$share/fonts/Delta-Corps-Priest-1.flf"
   install -Dm644 terminals/alacritty-screensaver.toml "$share/terminals/alacritty-screensaver.toml"
   install -Dm644 terminals/foot-screensaver.ini "$share/terminals/foot-screensaver.ini"
   install -Dm644 terminals/ghostty-screensaver "$share/terminals/ghostty-screensaver"

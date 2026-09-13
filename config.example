@@ -8,6 +8,7 @@
 # SCREENSAVER_EXCLUDE="bouncyballs"
 # SCREENSAVER_ART=$HOME/.config/omarchy/branding/screensaver.txt
 # Default text style, saved automatically by `setup` / `set-text`
-# (standard|small|mini|plain; empty = auto-fit on next set-text).
+# (omarchy|standard|small|mini|plain; empty = auto-pick on next set-text).
+# `omarchy` is the bundled Omarchy wordmark style (letters + digits).
 # Changing text later with `glyphsaver set-text "..."` reuses it.
 # SCREENSAVER_FONT=""

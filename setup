@@ -13,6 +13,8 @@ source "$SCRIPT_DIR/lib.sh" 2>/dev/null || source /usr/share/glyphsaver/lib.sh
 ASSET_DIR="$(ss_asset_dir)"
 LAUNCHER="$SCRIPT_DIR/launch-screensaver"
 [[ -x "$LAUNCHER" ]] || LAUNCHER="$(command -v glyphsaver 2>/dev/null || echo "$LAUNCHER")"
+INNER_BIN="$SCRIPT_DIR/screensaver"
+[[ -x "$INNER_BIN" ]] || INNER_BIN="$(command -v glyphsaver-loop 2>/dev/null || echo "$INNER_BIN")"
 
 HYPR_DIR="$HOME/.config/hypr"
 HYPRIDLE="$HYPR_DIR/hypridle.conf"
@@ -263,19 +265,27 @@ text)
   else
     tmp=$(mktemp)
     style=$(ss_render_text "$ART_VAL" "$tmp")
-    ss_write_art "$tmp"
-    rm -f "$tmp"
-    echo "Art set to \"$ART_VAL\" ($style)."
-    # Persist the chosen font as the default style: later text changes
-    # reuse it via `glyphsaver set-text}.
-    if [[ "$style" == figlet/* ]]; then
-      _font="${style#figlet/}"
-      _font="${_font%% *}"
-    else
-      _font="plain"
+    echo "Rendered \"$ART_VAL\" ($style):"
+    head -9 "$tmp"
+    # Preview the new art through one real effect cycle before saving.
+    prev="$(ask "Preview it with a live effect? (Y/n)" "Y")"
+    if [[ "$prev" =~ ^[Yy] ]]; then
+      "$INNER_BIN" --once --art "$tmp" --fps 60 || true
+      printf '\033[?25h'
     fi
-    ss_config_set SCREENSAVER_FONT "$_font" "$CONFIG"
-    echo "Style saved as default: $_font"
+    keep="$(ask "Keep this as your screensaver art? (Y/n)" "Y")"
+    if [[ "$keep" =~ ^[Yy] ]]; then
+      ss_write_art "$tmp"
+      echo "Art set to \"$ART_VAL\" ($style)."
+      # Persist the chosen font as the default style: later text changes
+      # reuse it via `glyphsaver set-text`.
+      _font="$(ss_style_name "$style")"
+      ss_config_set SCREENSAVER_FONT "$_font" "$CONFIG"
+      echo "Style saved as default: $_font"
+    else
+      echo "Discarded — keeping current art."
+    fi
+    rm -f "$tmp"
   fi
   ;;
 image)

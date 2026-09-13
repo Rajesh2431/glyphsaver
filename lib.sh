@@ -119,18 +119,66 @@ ss_max_cols() {
   echo "$min"
 }
 
-# Render TEXT into OUTFILE.
-# Picks the biggest figlet font that fits the screen (standard -> small ->
-# mini -> plain), unless PREFERRED_FONT names a starting point — e.g. the
-# stored default style. A preferred font that no longer fits cascades down,
-# so longer replacement text still displays instead of clipping.
-# Prints the chosen style on stdout.
+ss_ascii_bin() {
+  local here
+  here="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" &>/dev/null && pwd)"
+  if [[ -x "$here/ascii" ]]; then
+    echo "$here/ascii"
+  else
+    echo "/usr/share/glyphsaver/ascii"
+  fi
+}
+
+# Render TEXT with the bundled Omarchy-style font (letters + digits).
+# Prints "omarchy (width W/C cols)" and returns 0 when it fits the screen.
+ss_render_omarchy() {
+  local text="$1" outfile="$2" max_cols="$3"
+  local asc wid
+  asc="$(ss_ascii_bin)"
+  [[ -x "$asc" ]] || return 1
+  "$asc" "$text" >"$outfile" 2>/dev/null || return 1
+  wid=$(awk '{ print length }' "$outfile" | sort -n | tail -1)
+  [[ -n "$wid" ]] && ((wid <= max_cols)) || return 1
+  echo "omarchy (width ${wid}/${max_cols} cols)"
+  return 0
+}
+# Map an ss_render_* "Style: ..." line to a storable font key.
+ss_style_name() {
+  local style="$1" font
+  if [[ "$style" == omarchy* ]]; then
+    echo "omarchy"
+  elif [[ "$style" == figlet/* ]]; then
+    font="${style#figlet/}"
+    echo "${font%% *}"
+  else
+    echo "plain"
+  fi
+}
+
+# Render TEXT into OUTFILE, printing the chosen style name on stdout.
+# Order: Omarchy wordmark style first (when preferred is empty or omarchy),
+# then the biggest fitting figlet font, then plain centered text.
+# A preferred font that no longer fits cascades down, so longer replacement
+# text still displays instead of clipping.
 ss_render_text() {
   local text="$1" outfile="$2" preferred="${3:-}"
   local max_cols
   max_cols=$(ss_max_cols)
   local tmp
   tmp=$(mktemp)
+
+  # Omarchy wordmark style (bundled font, letters + digits, no extra deps).
+  if [[ -z "$preferred" || "$preferred" == "omarchy" ]]; then
+    local style
+    if style=$(ss_render_omarchy "$text" "$tmp" "$max_cols"); then
+      cp "$tmp" "$outfile"
+      echo "$style"
+      rm -f "$tmp"
+      return 0
+    fi
+    # Too wide or nothing drawable: fall through to smaller styles.
+    [[ "$preferred" == "omarchy" ]] && preferred=""
+  fi
 
   if command -v figlet &>/dev/null; then
     local all_fonts="standard small mini" fonts="" f start=0

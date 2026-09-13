@@ -15,9 +15,10 @@ via the Rust port [`omacom-io/ttfx`](https://github.com/omacom-io/ttfx).
   `beams`, `burn`, `wipe`, …), random cycling (default) or one fixed effect
 - **Two engines, auto-picked** — `ttfx` (fast Rust) preferred, `tte` (original
   Python) as fallback; override per-run or in config
-- **Auto-fit text art** — any text rendered in the biggest figlet font that fits
-  your screen (`standard` → `small` → `mini` → plain); the chosen font is saved
-  as your default style, and later text changes reuse it
+- **Auto-fit text art** — Omarchy wordmark style first (bundled Delta Corps
+  Priest 1 + matching digits, no extra deps), then biggest fitting figlet font,
+  then plain; the chosen style is saved as default and reused for later texts
+- **`glyphsaver ascii`** — render words to stdout in the wordmark style
 - **Image → ASCII** — PNG/SVG converted via `chafa`; custom `.txt` art supported
 - **Per-monitor fullscreen** — one terminal per Hyprland monitor, race-free
   spawn (event-socket sync)
@@ -62,8 +63,9 @@ You are guided through 5 steps:
    `4` 480s (before a 10-min lock) · `5` custom · `6` skip.
    Writes a managed `listener` into `~/.config/hypr/hypridle.conf`
    (`.bak` backup, placed before your lock listener).
-4. **Text/art** — type text (auto-fit + style saved as default), convert an
-   image, use a `.txt` file, or keep the bundled logo.
+4. **Text/art** — type text (default: your username); it renders in the
+   Omarchy wordmark style at full logo size, shows you the result, offers a
+   live effect preview, then asks to keep it as default (style saved).
 5. **Hyprland rules** — see compatibility table below.
 
 Non-interactive equivalent:
@@ -116,6 +118,8 @@ publishing steps.
 | `glyphsaver status` | running state, toggle state, engines, art, style |
 | `glyphsaver show` | all saved settings (art, style, engine, mode, filters, fps, idle) |
 | `glyphsaver preview [EFFECT]` | one effect cycle inline in the current terminal |
+| `glyphsaver preview-text "Hi 123"` | render text and preview once without saving |
+| `glyphsaver ascii "Hi 123"` | print wordmark-style art to stdout (no save) |
 | `glyphsaver list-effects` | the 37 effects |
 | `glyphsaver time 150` | set idle timeout (seconds); rewrites the hypridle block |
 | `glyphsaver time` | show current idle timeout |
@@ -125,7 +129,7 @@ publishing steps.
 | `glyphsaver exclude "burn"` / `clear` | random block-list (clears include) |
 | `glyphsaver fps 120` | frame rate 1–1000 |
 | `glyphsaver engine auto\|ttfx\|tte` | effects engine |
-| `glyphsaver style mini` / `auto` | default text style (`standard\|small\|mini\|plain\|auto`) |
+| `glyphsaver style mini` / `auto` | default text style (`omarchy\|standard\|small\|mini\|plain\|auto`) |
 | `glyphsaver set-image logo.png` | PNG/SVG → ASCII art (needs `chafa`) |
 | `glyphsaver set-art file.txt` | use an existing text-art file |
 | `glyphsaver edit-art` | open current art in `$EDITOR` |
@@ -190,6 +194,8 @@ own config sections. Restart `hypridle` / `hyprctl reload` to apply.
 
 ## Credits
 
-- Screensaver concept, terminal configs, logo: [`basecamp/omarchy`](https://github.com/basecamp/omarchy)
+- Screensaver concept, logo, wordmark font (Delta Corps Priest 1):
+  [`basecamp/omarchy`](https://github.com/basecamp/omarchy) — digits 0–9 in the
+  same style were drawn for this repo (`fonts/Delta-Corps-Priest-1.flf`)
 - Effects engine: [TerminalTextEffects](https://github.com/ChrisBuilds/terminaltexteffects) by ChrisBuilds; Rust port [omacom-io/ttfx](https://github.com/omacom-io/ttfx)
 - Standalone Arch port, setup/uninstall/packaging: this repo (MIT, see `LICENSE`)
